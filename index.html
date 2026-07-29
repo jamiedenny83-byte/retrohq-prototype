@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>RetroHQ Prototype</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar" id="sidebar">
+      <div class="brand"><span class="brand-mark">R</span><span>RetroHQ</span></div>
+      <nav id="main-nav">
+        <button class="nav-item active" data-view="dashboard">Dashboard</button>
+        <button class="nav-item" data-view="acquisitions">Acquisitions</button>
+        <button class="nav-item" data-view="inventory">Inventory</button>
+        <button class="nav-item" data-view="processing">Processing</button>
+        <button class="nav-item" data-view="sales">Sales</button>
+        <button class="nav-item" data-view="reports">Reports</button>
+        <button class="nav-item" data-view="settings">Settings</button>
+      </nav>
+      <div class="plan-card">
+        <small>Current plan</small>
+        <strong>Founder Preview</strong>
+        <span>All prototype features enabled</span>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <header class="topbar">
+        <button class="menu-btn" id="menu-btn" aria-label="Open menu">☰</button>
+        <div>
+          <h1 id="page-title">Dashboard</h1>
+          <p id="page-subtitle">What are you doing today?</p>
+        </div>
+        <div class="user-chip">JD</div>
+      </header>
+      <section id="view-root"></section>
+    </main>
+  </div>
+
+  <div class="modal-backdrop hidden" id="modal-backdrop">
+    <div class="modal" id="modal"></div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
