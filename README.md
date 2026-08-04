@@ -1,19 +1,11 @@
-# RetroHQ OS — Milestone 2 Stage 3
+# RetroHQ OS — Milestone 2 Stage 4
 
-This checkpoint adds the Sales Engine while preserving the acquisition, inventory, processing, market and reporting prototype.
+A dependency-free workflow prototype focused on **One Item. One Record. One Lifecycle.**
 
-## Test locally in GitHub Codespaces
+Run with:
 
 ```bash
 python3 -m http.server 8000
 ```
 
-Open forwarded port 8000.
-
-## Demo manager PIN
-
-`2468`
-
-## Important
-
-Marketplace and EPOS connections are represented as integration workflows. Live APIs require the server-side architecture and approved credentials planned for the following connector stage.
+Then open the forwarded port in Codespaces.
