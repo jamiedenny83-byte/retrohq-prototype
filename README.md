@@ -1,11 +1,9 @@
-# RetroHQ OS — Milestone 2 Stage 4
+# RetroHQ OS — Milestone 2 Stage 5
 
-A dependency-free workflow prototype focused on **One Item. One Record. One Lifecycle.**
+Core Workflow Refinement based on the 13 Stage 4 testing points.
 
-Run with:
+Run locally / in Codespaces:
 
-```bash
-python3 -m http.server 8000
-```
+    python3 -m http.server 8000
 
-Then open the forwarded port in Codespaces.
+Then open forwarded port 8000 and hard refresh.
