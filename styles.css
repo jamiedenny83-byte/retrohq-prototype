@@ -13,3 +13,5 @@
 .live-research{margin-top:12px;padding:12px;border:1px solid var(--line,#e5e7eb);border-radius:12px}
 .research-buttons{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
 .research-buttons a{text-decoration:none}
+
+.auto-status,.provider-warning,.evidence-panel{margin-top:12px;padding:12px;border:1px solid var(--line,#ddd);border-radius:12px}.evidence-row{display:grid;grid-template-columns:1fr auto;gap:4px 12px;padding:8px 0;border-bottom:1px solid var(--line,#eee)}.evidence-row small{grid-column:1/-1}
