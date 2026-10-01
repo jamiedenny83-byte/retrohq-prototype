@@ -1,0 +1,38 @@
+RETROHQ LIVE WORKFLOW TEST 7.2 — START HERE
+
+1) STOP THE OLD SERVER
+
+pkill -f "server.py" 2>/dev/null || true
+fuser -k 8006/tcp 2>/dev/null || true
+
+2) LOAD YOUR PRICECHARTING GENERAL API TOKEN
+Replace YOUR_GENERAL_API_TOKEN_HERE with your own token. Do not paste the token into ChatGPT.
+
+export PRICECHARTING_API_TOKEN="YOUR_GENERAL_API_TOKEN_HERE"
+
+3) CHECK THE TOKEN IS LOADED WITHOUT DISPLAYING IT
+
+if [ -n "$PRICECHARTING_API_TOKEN" ]; then echo "✓ PriceCharting token loaded"; else echo "✗ Token missing"; fi
+
+4) START RETROHQ
+
+python3 server.py
+
+Expected marker:
+RetroHQ Test 7.2 — Identity Lock + Market Value Restoration
+http://localhost:8006
+
+5) Open forwarded port 8006 and hard refresh: Ctrl + Shift + R
+
+FIRST REGRESSION TESTS
+- Original Xbox -> Unboxed
+- PS3 slim red -> confirm exact Scarlet Red / storage variant offered
+- Game Boy Advance system -> confirm hardware only
+
+WHAT TEST 7.2 MUST DO
+- Lock the confirmed product identity before CeX lookup.
+- Preserve explicit model/revision, storage and colour.
+- Treat CeX Boxed / Unboxed / Discounted as separate CeX catalogue records.
+- Keep CeX Retail / Cash / Voucher separate.
+- Reject conflicting CeX variants rather than using a wrong price.
+- Restore a preliminary UK Market Value only from identity-validated CeX retail evidence.
