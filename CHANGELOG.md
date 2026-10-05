@@ -10,7 +10,7 @@
 - Fixed maximum-buy percentage maths: 45% is applied as 0.45.
 - Blank asking prices remain unknown instead of becoming £0 and producing a false 100% margin.
 - RetroHQ UK Market Value uses only identity-validated CeX retail evidence or manual override at this stage.
-- Removed obsolete Stage 5 / Hotfix documentation from the current test branch.
+- Removed obsolete milestone/hotfix documentation from the current test branch.
 
 ## Historical baselines
 
