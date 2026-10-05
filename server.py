@@ -1,5 +1,5 @@
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
-from urllib.parse import urlparse, parse_qs, urlencode
+from urllib.parse import urlparse, parse_qs, urlencode, quote
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 from pathlib import Path
@@ -44,126 +44,182 @@ def canonical_identity(query, pc, intent):
             "label":intent.get("label"),"confirmedProduct":pc.get("product"),"confirmedConsole":pc.get("console"),
             "attributes":attrs}
 
+def identity_attributes(text):
+    """Extract variant attributes without allowing broad terms to overwrite specific ones."""
+    t=(text or "").lower(); attrs={}
+    if "super slim" in t: attrs["revision"]="super slim"
+    elif re.search(r"\bslim\b", t): attrs["revision"]="slim"
+    elif re.search(r"\belite\b", t): attrs["revision"]="elite"
+    elif re.search(r"\barcade\b", t): attrs["revision"]="arcade"
+    m=re.search(r"\b(\d+)\s*(gb|tb)\b",t)
+    if m: attrs["storage"]=(m.group(1)+m.group(2)).lower()
+    if "scarlet red" in t: attrs["colour"]="scarlet red"
+    elif "indigo" in t: attrs["colour"]="indigo"
+    elif "glacier" in t: attrs["colour"]="glacier"
+    else:
+        for v in ("purple","black","white","silver","red","blue","pink"):
+            if re.search(r"\b"+re.escape(v)+r"\b", t): attrs["colour"]=v; break
+    return attrs
+
+def canonical_identity(query, pc, intent):
+    confirmed_attrs=identity_attributes(" ".join(x for x in (pc.get("product"),pc.get("console")) if x))
+    query_attrs=identity_attributes(query); attrs=dict(confirmed_attrs)
+    for k,v in query_attrs.items(): attrs.setdefault(k,v)
+    return {"type":intent.get("type"),"family":intent.get("family"),"platform":intent.get("platform"),
+            "label":intent.get("label"),"confirmedProduct":pc.get("product"),"confirmedConsole":pc.get("console"),
+            "pricechartingProductId":pc.get("id"),"attributes":attrs}
+
+def cex_grade_from_title(title):
+    low=(title or "").lower()
+    if re.search(r"\bdiscounted\b", low): return "Discounted"
+    if re.search(r"\bunboxed\b", low): return "Unboxed"
+    if re.search(r"\bboxed\b", low): return "Boxed"
+    return None
+
 def cex_identity_quality(title, identity):
     hay=(title or "").lower(); attrs=identity.get("attributes") or {}; conflicts=[]; matches=[]
-    # Explicitly confirmed variant attributes are identity evidence, not optional search hints.
     rev=attrs.get("revision")
     if rev:
-        if rev in hay: matches.append(rev)
-        elif rev=="super slim" and "slim" in hay: conflicts.append("revision")
+        if rev=="super slim":
+            if "super slim" in hay: matches.append(rev)
+            else: conflicts.append("revision")
+        elif rev=="slim":
+            if "super slim" in hay: conflicts.append("revision")
+            elif re.search(r"\bslim\b", hay): matches.append(rev)
+            else: conflicts.append("revision")
+        elif rev in hay: matches.append(rev)
         else: conflicts.append("revision")
     storage=attrs.get("storage")
     if storage:
-        if storage in hay.replace(" ",""): matches.append(storage)
+        compact=hay.replace(" ","")
+        if storage in compact: matches.append(storage)
         elif re.search(r"\b\d+\s*(?:gb|tb)\b",hay): conflicts.append("storage")
         else: conflicts.append("storage")
     colour=attrs.get("colour")
     if colour:
-        colour_terms={"scarlet red":["scarlet red","red"],"indigo":["indigo","purple"],"glacier":["glacier"]}.get(colour,[colour])
-        if any(x in hay for x in colour_terms): matches.append(colour)
+        terms={"scarlet red":["scarlet red","red"],"indigo":["indigo","purple"],"glacier":["glacier"]}.get(colour,[colour])
+        if any(x in hay for x in terms): matches.append(colour)
         elif any(x in hay for x in ("red","blue","black","white","silver","pink","purple","indigo","glacier")): conflicts.append("colour")
         else: conflicts.append("colour")
     return matches,conflicts
 
-def cex_search(query, intent=None, limit=40, grade=None, identity=None):
-    """Internal PoC CeX UK adapter. Prices are evidence only: retail/cash/voucher stay separate."""
+def _cex_candidate_score(title, category, search_query, intent, identity, grade=None):
+    hay=(title+" "+category).lower(); qwords=set(normalize_words(search_query)); words=set(normalize_words(title+" "+category))
+    score=2*len(qwords & words)
+    if intent.get("type")=="hardware":
+        if any(x in hay for x in ("software"," games","accessor","case","controller","cable","charger","adapter","headset")): return None
+        if not any(x in hay for x in ("console","consoles","system","handheld","gameboy","game boy")): return None
+        score+=15
+    if any(x in hay for x in intent.get("excludeConsoleTerms",[])): return None
+    platform=identity.get("platform") or intent.get("platform") or ""
+    if platform=="Original Xbox":
+        if "xbox" not in hay or any(x in hay for x in ("xbox 360","xbox one","xbox series")): return None
+        score+=20
+    elif platform:
+        allowed=intent.get("allowedConsoleTerms",[])
+        if allowed and not any(x in hay for x in allowed): return None
+        score+=12
+    matches,conflicts=cex_identity_quality(title,identity)
+    if conflicts: return None
+    score+=8*len(matches)
+    if grade:
+        actual=cex_grade_from_title(title)
+        if actual==grade: score+=12
+        elif actual: return None
+    return score
+
+def _cex_prices(h):
+    return {"retail":_num(_first(h,"sellPrice","price_sell","sale_price")),
+            "cash":_num(_first(h,"cashPrice","price_cash","trade_in_cash_price")),
+            "voucher":_num(_first(h,"exchangePrice","price_exchange","trade_in_voucher_price"))}
+
+def cex_detail(product_id):
+    global _cex_last_call
+    if not product_id: return None
+    with _cex_lock:
+        wait=0.35-(time.monotonic()-_cex_last_call)
+        if wait>0: time.sleep(wait)
+        req=Request("https://wss2.cex.uk.webuy.io/v3/boxes/{}/detail".format(quote(str(product_id),safe="")),
+                    headers={"User-Agent":"RetroHQ-Internal-PoC/0.7.4 (+internal testing)"})
+        try:
+            with urlopen(req,timeout=12) as resp: data=json.loads(resp.read().decode("utf-8"))
+        except (HTTPError,URLError,TimeoutError,json.JSONDecodeError): return None
+        finally: _cex_last_call=time.monotonic()
+    payload=((data.get("response") or {}).get("data") or {})
+    details=payload.get("boxDetails") or payload.get("boxes") or []
+    return details[0] if details else None
+
+def cex_search(query, intent=None, limit=40, grade=None, identity=None, selected_product_id=None):
     global _cex_last_call
     if not query: return {"ok":False,"status":"No query","detail":"No confirmed identity supplied to CeX."}
-    intent = intent or {}
-    identity = identity or {}
-    # CeX grades are separate catalogue records. If the reseller already typed one, use it automatically.
-    qlow=(query or "").lower()
+    intent=intent or {}; identity=identity or {}; qlow=(query or "").lower()
     if not grade:
-        for g in ("boxed","unboxed","discounted"):
-            if re.search(r"\b"+g+r"\b", qlow):
-                grade=g.title(); break
-    platform = identity.get("platform") or intent.get("platform") or ""
-    # CeX naming differs from PriceCharting. Use RetroHQ's confirmed identity, not PC's product title.
-    cex_aliases = {
-        "Original Xbox": "Xbox Console",
-        "Xbox 360": "Xbox 360 Console",
-        "Xbox One": "Xbox One Console",
-        "Xbox Series S": "Xbox Series S Console",
-        "Xbox Series X": "Xbox Series X Console",
-        "PlayStation 2": "PlayStation 2 Console",
-        "PlayStation 3": "PlayStation 3 Console",
-        "PlayStation 4": "PlayStation 4 Console",
-        "PlayStation 5": "PlayStation 5 Console",
-        "Game Boy Advance": "Gameboy Advance Console",
-        "Game Boy Color": "Gameboy Color Console",
-    }
-    search_query = cex_aliases.get(platform, query)
-    attrs=identity.get("attributes") or {}
-    # Preserve confirmed model/storage/colour in the provider hand-off. CeX grade is a separate catalogue record.
+        for g in ("discounted","unboxed","boxed"):
+            if re.search(r"\b"+g+r"\b",qlow): grade=g.title(); break
+    platform=identity.get("platform") or intent.get("platform") or ""
+    aliases={"Original Xbox":"Xbox Console","Xbox 360":"Xbox 360 Console","Xbox One":"Xbox One Console",
+      "Xbox Series S":"Xbox Series S Console","Xbox Series X":"Xbox Series X Console",
+      "PlayStation 2":"PlayStation 2 Console","PlayStation 3":"PlayStation 3 Console","PlayStation 4":"PlayStation 4 Console",
+      "PlayStation 5":"PlayStation 5 Console","Game Boy Advance":"Gameboy Advance Console","Game Boy Color":"Gameboy Color Console"}
+    search_query=aliases.get(platform,query); attrs=identity.get("attributes") or {}
     for val in (attrs.get("revision"),attrs.get("storage"),attrs.get("colour")):
-        if val and val.lower() not in search_query.lower(): search_query += " " + val
-    if grade and grade.lower() not in search_query.lower(): search_query += " " + grade
+        if val and val.lower() not in search_query.lower(): search_query+=" "+val
+    if grade and grade.lower() not in search_query.lower(): search_query+=" "+grade
+
+    def exact_result(h, selected=False):
+        title=str(_first(h,"boxName","name","title","productName") or "Unknown")
+        category=str(_first(h,"categoryName","categoryFriendlyName","category","superCatName") or "")
+        actual=cex_grade_from_title(title); sc=_cex_candidate_score(title,category,search_query,intent,identity,actual)
+        if sc is None: return {"ok":False,"status":"CeX selection rejected","detail":"The selected CeX catalogue record conflicts with the locked RetroHQ identity."}
+        prices=_cex_prices(h)
+        return {"ok":True,"score":sc,"product":title,"productId":_first(h,"boxId","box_id","objectID","id"),
+          **prices,"stock":_first(h,"ecomQuantityOnHand","stock","stockOnline","online_quantity","collectionQuantity"),
+          "outOfEcomStock":_first(h,"outOfEcomStock","out_of_ecom_stock"),"category":category,"grade":actual,
+          "candidateCount":1,"matchQuality":"Confirmed exact CeX record" if selected else "Exact/strong",
+          "identity":identity,"selectedByUser":selected}
+
+    if selected_product_id:
+        h=cex_detail(selected_product_id)
+        if h: return exact_result(h,True)
+
     params=urlencode({"query":search_query,"hitsPerPage":limit})
     payload=json.dumps({"requests":[{"indexName":"prod_cex_uk","params":params}]}).encode("utf-8")
     with _cex_lock:
         wait=1.05-(time.monotonic()-_cex_last_call)
         if wait>0: time.sleep(wait)
-        req=Request(CEX_SEARCH,data=payload,headers={"Content-Type":"application/json","User-Agent":"RetroHQ-Internal-PoC/0.7.3 (+internal testing)"},method="POST")
+        req=Request(CEX_SEARCH,data=payload,headers={"Content-Type":"application/json","User-Agent":"RetroHQ-Internal-PoC/0.7.4 (+internal testing)"},method="POST")
         try:
             with urlopen(req,timeout=12) as resp: data=json.loads(resp.read().decode("utf-8"))
         except (HTTPError,URLError,TimeoutError,json.JSONDecodeError) as e:
             return {"ok":False,"status":"CeX unavailable","detail":str(e)}
         finally: _cex_last_call=time.monotonic()
     hits=((data.get("results") or [{}])[0].get("hits") or [])
-    qwords=set(normalize_words(search_query)); ranked=[]
-    grade_l=(grade or "").lower()
+    ranked=[]
     for h in hits:
         title=str(_first(h,"boxName","name","title","productName") or "")
         category=str(_first(h,"categoryName","categoryFriendlyName","category","superCatName") or "")
-        hay=(title+" "+category).lower(); words=set(normalize_words(title+" "+category))
-        score=2*len(qwords & words)
-        if intent.get("type")=="hardware":
-            # A confirmed console can never be satisfied by software or an accessory.
-            if any(x in hay for x in ("software"," games","accessor","case","controller","cable","charger","adapter","headset")): continue
-            if not any(x in hay for x in ("console","consoles","system","handheld","gameboy","game boy")): continue
-            score += 15
-        # Generation is a hard identity constraint, including CeX's category text.
-        excludes=intent.get("excludeConsoleTerms",[])
-        if any(x in hay for x in excludes): continue
-        if platform == "Original Xbox":
-            if "xbox" not in hay or any(x in hay for x in ("xbox 360","xbox one","xbox series")): continue
-            score += 20
-        elif platform:
-            allowed=intent.get("allowedConsoleTerms",[])
-            if allowed and not any(x in hay for x in allowed): continue
-            score += 12
-        matches,conflicts=cex_identity_quality(title,identity)
-        if conflicts: continue
-        score += 8*len(matches)
-        if grade_l:
-            if grade_l in hay: score += 12
-            elif any(g in hay for g in ("boxed","unboxed","discounted")): continue
-        ranked.append((score,h))
+        sc=_cex_candidate_score(title,category,search_query,intent,identity,grade)
+        if sc is not None: ranked.append((sc,h))
     ranked.sort(key=lambda x:x[0],reverse=True)
-    if not ranked or ranked[0][0] < 12:
-        return {"ok":False,"status":"No confident CeX match","detail":"CeX returned no candidate that passed RetroHQ's product type and generation checks."}
-    score,h=ranked[0]
-    title=str(_first(h,"boxName","name","title","productName") or "Unknown")
-    category=str(_first(h,"categoryName","categoryFriendlyName","category") or "")
-    # If the top two are close and no grade was supplied, do not pretend completeness is known.
-    if intent.get("type")=="hardware" and not grade and len(ranked)>1 and ranked[1][0] >= score-1:
-        variants=[]
-        seen=set()
-        for sc,cand in ranked[:12]:
-            nm=str(_first(cand,"boxName","name","title","productName") or "")
-            low=nm.lower(); cg=next((g.title() for g in ("boxed","unboxed","discounted") if g in low), None)
-            if not cg or cg in seen: continue
-            seen.add(cg)
-            variants.append({"grade":cg,"product":nm,"retail":_num(_first(cand,"sellPrice","price_sell","sale_price")),"cash":_num(_first(cand,"cashPrice","price_cash","trade_in_cash_price")),"voucher":_num(_first(cand,"exchangePrice","price_exchange","trade_in_voucher_price"))})
-        return {"ok":False,"status":"CeX variant needed","detail":"Multiple credible CeX catalogue records match this product. Choose the appropriate CeX grade to continue.","variants":variants}
-    return {"ok":True,"score":score,"product":title,"productId":_first(h,"boxId","box_id","objectID","id"),
-            "retail":_num(_first(h,"sellPrice","price_sell","sale_price")),
-            "cash":_num(_first(h,"cashPrice","price_cash","trade_in_cash_price")),
-            "voucher":_num(_first(h,"exchangePrice","price_exchange","trade_in_voucher_price")),
-            "stock":_first(h,"ecomQuantityOnHand","stock","stockOnline","online_quantity","collectionQuantity"),
-            "outOfEcomStock":_first(h,"outOfEcomStock","out_of_ecom_stock"),
-            "category":category,"grade":grade,"candidateCount":len(ranked),"matchQuality":"Exact/strong" if identity.get("attributes") else "Strong","identity":identity}
-
+    if selected_product_id:
+        for _,cand in ranked:
+            pid=str(_first(cand,"boxId","box_id","objectID","id") or "")
+            if pid==str(selected_product_id): return exact_result(cand,True)
+        return {"ok":False,"status":"CeX exact match unavailable","detail":"The selected CeX record could not be refreshed. Choose a CeX match again."}
+    if not ranked or ranked[0][0]<12:
+        return {"ok":False,"status":"No confident CeX match","detail":"CeX returned no candidate that passed RetroHQ's locked product identity checks."}
+    if intent.get("type")=="hardware" and not grade:
+        variants=[]; seen=set(); best=ranked[0][0]
+        for sc,cand in ranked[:16]:
+            if sc<best-5: continue
+            nm=str(_first(cand,"boxName","name","title","productName") or ""); pid=str(_first(cand,"boxId","box_id","objectID","id") or "")
+            if not pid or pid in seen: continue
+            seen.add(pid); prices=_cex_prices(cand)
+            variants.append({"productId":pid,"grade":cex_grade_from_title(nm) or "CeX variant","product":nm,**prices})
+            if len(variants)>=6: break
+        if len(variants)>1:
+            return {"ok":False,"status":"CeX variant needed","detail":"Multiple credible CeX catalogue records match the locked product. Choose the exact CeX record to continue.","variants":variants}
+    return exact_result(ranked[0][1],False)
 
 def pc_money(v):
     try: return round(int(v) / 100.0, 2)
@@ -178,7 +234,7 @@ def pc_call(url, params):
     with _pc_lock:
         wait = 1.05 - (time.monotonic() - _pc_last_call)
         if wait > 0: time.sleep(wait)
-        req = Request(url + "?" + urlencode(params), headers={"User-Agent":"RetroHQ-Internal-PoC/0.5"})
+        req = Request(url + "?" + urlencode(params), headers={"User-Agent":"RetroHQ-Internal-PoC/0.7.4"})
         try:
             with urlopen(req, timeout=12) as resp: return json.loads(resp.read().decode("utf-8"))
         except HTTPError as e:
@@ -317,7 +373,7 @@ class H(SimpleHTTPRequestHandler):
     def do_GET(self):
         u = urlparse(self.path)
         if u.path == "/api/market-search":
-            p = parse_qs(u.query); q = (p.get("q") or [""])[0].strip(); barcode = (p.get("barcode") or [""])[0].strip(); selected_id=(p.get("id") or [""])[0].strip(); cex_grade=(p.get("cexGrade") or [""])[0].strip() or None
+            p = parse_qs(u.query); q=(p.get("q") or [""])[0].strip(); barcode=(p.get("barcode") or [""])[0].strip(); selected_id=(p.get("id") or [""])[0].strip(); cex_grade=(p.get("cexGrade") or [""])[0].strip() or None; cex_id=(p.get("cexId") or [""])[0].strip() or None
             lookup = pricecharting_lookup(q, barcode, selected_id)
             if lookup.get("mode") == "refinements":
                 self.send_json({"query":q,"barcode":barcode,"marketValue":None,"confidence":"needs-refinement","needsRefinement":True,"intent":lookup.get("intent"),"refinements":lookup.get("refinements",[]),"reason":lookup.get("reason")}); return
@@ -337,13 +393,13 @@ class H(SimpleHTTPRequestHandler):
                 evidence.append({"provider":"PriceCharting","status":"Live","currency":"USD","product":pc.get("product"),"console":pc.get("console"),
                                  "prices":pr,"salesVolume":pc.get("salesVolume"),"productId":pc.get("id"),
                                  "detail":f"Matched: {pc.get('product','Unknown')} — {pc.get('console','Unknown')}. " + " · ".join(parts)})
-                cex = cex_search(q, lookup.get("intent") or infer_intent(q), grade=cex_grade, identity=identity)
+                cex = cex_search(q, lookup.get("intent") or infer_intent(q), grade=cex_grade, identity=identity, selected_product_id=cex_id)
                 if cex.get("ok"):
                     cparts=[]
                     if cex.get("retail") is not None: cparts.append(f"retail £{cex['retail']:.2f}")
                     if cex.get("cash") is not None: cparts.append(f"cash £{cex['cash']:.2f}")
                     if cex.get("voucher") is not None: cparts.append(f"voucher £{cex['voucher']:.2f}")
-                    evidence.append({"provider":"CeX UK","status":"Live","currency":"GBP","product":cex.get("product"),"productId":cex.get("productId"),"retail":cex.get("retail"),"cash":cex.get("cash"),"voucher":cex.get("voucher"),"stock":cex.get("stock"),"grade":cex.get("grade"),"matchQuality":cex.get("matchQuality"),"identity":identity,"detail":f"Matched: {cex.get('product')}. " + " · ".join(cparts)})
+                    evidence.append({"provider":"CeX UK","status":"Live","currency":"GBP","product":cex.get("product"),"productId":cex.get("productId"),"retail":cex.get("retail"),"cash":cex.get("cash"),"voucher":cex.get("voucher"),"stock":cex.get("stock"),"grade":cex.get("grade"),"matchQuality":cex.get("matchQuality"),"selectedByUser":cex.get("selectedByUser",False),"identity":identity,"detail":f"Matched: {cex.get('product')}. " + " · ".join(cparts)})
                     market_value = cex.get("retail")
                     method = "Preliminary RetroHQ UK Market Value uses the identity-validated CeX UK retail benchmark. Cash and voucher trade-in are never used as market value. This will become a blended valuation when eBay UK and RetroHQ transaction evidence are available."
                 else:
@@ -352,7 +408,7 @@ class H(SimpleHTTPRequestHandler):
                     method = "Live PriceCharting reference loaded. CeX pricing is awaiting a grade choice where multiple catalogue records exist; uncertain evidence is excluded from UK Market Value."
             else:
                 evidence.append({"provider":"PriceCharting","status":pc.get("status","Unavailable"),"detail":pc.get("detail","")})
-                cex = cex_search(q, lookup.get("intent") or infer_intent(q), grade=cex_grade)
+                cex = cex_search(q, lookup.get("intent") or infer_intent(q), grade=cex_grade, selected_product_id=cex_id)
                 if cex.get("ok"):
                     evidence.append({"provider":"CeX UK","status":"Live","currency":"GBP","product":cex.get("product"),"productId":cex.get("productId"),"retail":cex.get("retail"),"cash":cex.get("cash"),"voucher":cex.get("voucher"),"stock":cex.get("stock"),"grade":cex.get("grade"),"detail":f"Matched: {cex.get('product')}. CeX sells £{cex.get('sell'):.2f}" if cex.get("sell") is not None else f"Matched: {cex.get('product')}"})
                     market_value=None
@@ -361,13 +417,13 @@ class H(SimpleHTTPRequestHandler):
                     evidence.append({"provider":"CeX UK","status":cex.get("status","Unavailable"),"detail":cex.get("detail","")})
                     market_value=None
                     method = "No market value invented. Neither provider returned evidence that passed RetroHQ checks."
-            self.send_json({"query":q,"barcode":barcode,"marketValue":market_value,"confidence":"uk-retail-benchmark" if market_value is not None else ("reference-only" if pc.get("ok") else "unavailable"),"evidence":evidence,"method":method,"lockedIdentity":identity}); return
+            self.send_json({"query":q,"barcode":barcode,"marketValue":market_value,"confidence":"uk-retail-benchmark" if market_value is not None else ("reference-only" if pc.get("ok") else "unavailable"),"evidence":evidence,"method":method,"lockedIdentity":identity,"pricechartingProductId":pc.get("id") if pc.get("ok") else None}); return
         if u.path == "/api/provider-status":
             self.send_json({"pricecharting": bool(os.environ.get("PRICECHARTING_API_TOKEN")), "ebay": False, "cex": True}); return
         super().do_GET()
 
 if __name__ == "__main__":
     port=int(os.environ.get("PORT","8006"))
-    print(f"RetroHQ Test 7.3 — CeX Variant Resolution: http://localhost:{port}")
+    print(f"RetroHQ Test 7.4 — CeX Selection + Decision Maths: http://localhost:{port}")
     print("PriceCharting token:", "loaded" if os.environ.get("PRICECHARTING_API_TOKEN") else "MISSING")
     ThreadingHTTPServer(("0.0.0.0",port),H).serve_forever()
