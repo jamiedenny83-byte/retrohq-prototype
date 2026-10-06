@@ -140,7 +140,7 @@ def cex_detail(product_id):
         wait=0.35-(time.monotonic()-_cex_last_call)
         if wait>0: time.sleep(wait)
         req=Request("https://wss2.cex.uk.webuy.io/v3/boxes/{}/detail".format(quote(str(product_id),safe="")),
-                    headers={"User-Agent":"RetroHQ-Internal-PoC/0.8 (+internal testing)"})
+                    headers={"User-Agent":"RetroHQ-Internal-PoC/0.8.1 (+internal testing)"})
         try:
             with urlopen(req,timeout=12) as resp: data=json.loads(resp.read().decode("utf-8"))
         except (HTTPError,URLError,TimeoutError,json.JSONDecodeError): return None
@@ -187,7 +187,7 @@ def cex_search(query, intent=None, limit=40, grade=None, identity=None, selected
     with _cex_lock:
         wait=1.05-(time.monotonic()-_cex_last_call)
         if wait>0: time.sleep(wait)
-        req=Request(CEX_SEARCH,data=payload,headers={"Content-Type":"application/json","User-Agent":"RetroHQ-Internal-PoC/0.8 (+internal testing)"},method="POST")
+        req=Request(CEX_SEARCH,data=payload,headers={"Content-Type":"application/json","User-Agent":"RetroHQ-Internal-PoC/0.8.1 (+internal testing)"},method="POST")
         try:
             with urlopen(req,timeout=12) as resp: data=json.loads(resp.read().decode("utf-8"))
         except (HTTPError,URLError,TimeoutError,json.JSONDecodeError) as e:
@@ -220,6 +220,63 @@ def cex_search(query, intent=None, limit=40, grade=None, identity=None, selected
         if len(variants)>1:
             return {"ok":False,"status":"CeX variant needed","detail":"Multiple credible CeX catalogue records match the locked product. Choose the exact CeX record to continue.","variants":variants}
     return exact_result(ranked[0][1],False)
+
+# Test 8.1 — live replacement-cost evidence for essential console accessories.
+# We only deduct a controller cost when CeX returns a credible platform-specific
+# controller match. If evidence is weak or unavailable, RetroHQ leaves the
+# adjustment unresolved instead of inventing a value.
+_CONTROLLER_QUERIES = {
+    "Original Xbox": ("Xbox Original Controller", ("xbox", "controller")),
+    "Xbox 360": ("Xbox 360 Wireless Controller", ("xbox", "360", "controller")),
+    "Xbox One": ("Xbox One Wireless Controller", ("xbox", "one", "controller")),
+    "Xbox Series S": ("Xbox Series Wireless Controller", ("xbox", "controller")),
+    "Xbox Series X": ("Xbox Series Wireless Controller", ("xbox", "controller")),
+    "PlayStation 2": ("Playstation 2 Official Controller", ("playstation", "2", "controller")),
+    "PlayStation 3": ("Playstation 3 Official DualShock 3 Controller", ("playstation", "3", "controller")),
+    "PlayStation 4": ("Playstation 4 Official DualShock 4 Controller", ("playstation", "4", "controller")),
+    "PlayStation 5": ("Playstation 5 DualSense Controller", ("playstation", "5", "controller")),
+}
+
+def cex_accessory_retail(platform):
+    spec=_CONTROLLER_QUERIES.get(platform)
+    if not spec: return {"ok":False,"status":"No accessory profile","detail":"No controller replacement profile is defined for this platform."}
+    query,required=spec
+    params=urlencode({"query":query,"hitsPerPage":30})
+    payload=json.dumps({"requests":[{"indexName":"prod_cex_uk","params":params}]}).encode("utf-8")
+    global _cex_last_call
+    with _cex_lock:
+        wait=1.05-(time.monotonic()-_cex_last_call)
+        if wait>0: time.sleep(wait)
+        req=Request(CEX_SEARCH,data=payload,headers={"Content-Type":"application/json","User-Agent":"RetroHQ-Internal-PoC/0.8.1 (+internal testing)"},method="POST")
+        try:
+            with urlopen(req,timeout=12) as resp: data=json.loads(resp.read().decode("utf-8"))
+        except (HTTPError,URLError,TimeoutError,json.JSONDecodeError) as e:
+            return {"ok":False,"status":"CeX unavailable","detail":str(e)}
+        finally: _cex_last_call=time.monotonic()
+    hits=((data.get("results") or [{}])[0].get("hits") or [])
+    ranked=[]
+    for h in hits:
+        title=str(_first(h,"boxName","name","title","productName") or "")
+        low=title.lower()
+        if "controller" not in low: continue
+        if any(x in low for x in ("console with","console +","bundle","charger","cable","case")): continue
+        # Require platform-specific evidence, but allow common PS/Xbox naming variants.
+        matched=sum(1 for term in required if term in low)
+        if matched < max(2,len(required)-1): continue
+        retail=_cex_prices(h).get("retail")
+        if retail is None or retail<=0: continue
+        score=matched*10 + 2*len(set(normalize_words(query)) & set(normalize_words(title)))
+        if "official" in low: score+=5
+        if "dualshock" in query.lower() and "dualshock" in low: score+=8
+        if "dualsense" in query.lower() and "dualsense" in low: score+=8
+        ranked.append((score,h,retail))
+    ranked.sort(key=lambda x:x[0],reverse=True)
+    if not ranked:
+        return {"ok":False,"status":"No confident accessory match","detail":"RetroHQ could not find a controller price it trusts enough to deduct automatically."}
+    score,h,retail=ranked[0]
+    title=str(_first(h,"boxName","name","title","productName") or "Controller")
+    return {"ok":True,"provider":"CeX UK","product":title,"retail":retail,"score":score,
+            "detail":"Live CeX UK retail replacement benchmark for the required controller."}
 
 def pc_money(v):
     try: return round(int(v) / 100.0, 2)
@@ -422,12 +479,16 @@ class H(SimpleHTTPRequestHandler):
                     market_value=None
                     method = "No market value invented. Neither provider returned evidence that passed RetroHQ checks."
             self.send_json({"query":q,"barcode":barcode,"marketValue":market_value,"confidence":"uk-retail-benchmark" if market_value is not None else ("reference-only" if pc.get("ok") else "unavailable"),"evidence":evidence,"method":method,"lockedIdentity":identity,"pricechartingProductId":pc.get("id") if pc.get("ok") else None}); return
+        if u.path == "/api/accessory-costs":
+            p=parse_qs(u.query); platform=(p.get("platform") or [""])[0].strip()
+            controller=cex_accessory_retail(platform) if platform else {"ok":False,"status":"No platform","detail":"No platform supplied."}
+            self.send_json({"platform":platform,"controller":controller,"cables":{"ok":False,"status":"Business allowance","detail":"Cable replacement uses the configurable RetroHQ business allowance until a reliable live component benchmark is connected."}}); return
         if u.path == "/api/provider-status":
             self.send_json({"pricecharting": bool(os.environ.get("PRICECHARTING_API_TOKEN")), "ebay": False, "cex": True}); return
         super().do_GET()
 
 if __name__ == "__main__":
     port=int(os.environ.get("PORT","8006"))
-    print(f"RetroHQ Test 8 — Counter Flow: http://localhost:{port}")
+    print(f"RetroHQ Test 8.1 — Smart Valuation + Workflow Intelligence: http://localhost:{port}")
     print("PriceCharting token:", "loaded" if os.environ.get("PRICECHARTING_API_TOKEN") else "MISSING")
     ThreadingHTTPServer(("0.0.0.0",port),H).serve_forever()
