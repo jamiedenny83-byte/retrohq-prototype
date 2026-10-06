@@ -1,5 +1,21 @@
 # RetroHQ Changelog
 
+## Test 8.1 — Smart Valuation + Workflow Intelligence
+
+- Added item-specific Smart Valuation on top of the Test 8 Counter Flow.
+- Missing controller can now deduct a live, confidently matched CeX UK replacement benchmark.
+- Missing cables use a transparent configurable business allowance.
+- Smart valuation calculations and unresolved adjustments are retained with the inventory item.
+- One stored RetroHQ Market Value now flows through Inventory, Item Workspace, HQ Today, Processing and Reports.
+- HQ Today now chooses one highest-priority next action per item.
+- Added Needs Valuation and Missing Essentials workflow states/signals.
+- Added Inventory workflow filters without adding more permanent columns.
+- Expanded Item Workspace with valuation breakdown, completeness, expected profit and clearer lifecycle.
+- Added first acquisition-to-sale feedback loop: acquisition valuation, sale outcome, actual profit and days-to-sell data.
+- Added clearer BUY / OVER TARGET decision output in Buy Check.
+- Test 8 remains frozen as the rollback baseline.
+
+
 ## Test 8 — Counter Flow
 
 - Reworked Buy Check around the target flow: **type / scan → Enter → answer**.
