@@ -34,3 +34,5 @@
 @media(max-width:760px){.lifecycle-strip{padding:8px}.lifecycle-strip span{font-size:11px}.workflow-task{align-items:flex-start}.workflow-task>div:last-child{justify-content:flex-start}}
 
 .completeness-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.completeness-actions .included{border-color:#166534;color:#86efac;background:#0f2d22}
+
+.override-active{outline:1px solid #f59e0b;background:#2a210f!important}.link-button{border:0;background:transparent;color:#a5b4fc;text-decoration:underline;cursor:pointer;padding:0;font:inherit}.link-button:hover{color:#c7d2fe}
