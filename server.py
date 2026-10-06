@@ -478,7 +478,7 @@ class H(SimpleHTTPRequestHandler):
                     if cex.get("voucher") is not None: cparts.append(f"voucher £{cex['voucher']:.2f}")
                     evidence.append({"provider":"CeX UK","status":"Live","currency":"GBP","product":cex.get("product"),"productId":cex.get("productId"),"retail":cex.get("retail"),"cash":cex.get("cash"),"voucher":cex.get("voucher"),"stock":cex.get("stock"),"grade":cex.get("grade"),"matchQuality":cex.get("matchQuality"),"selectedByUser":cex.get("selectedByUser",False),"identity":identity,"detail":f"Matched: {cex.get('product')}. " + " · ".join(cparts)})
                     market_value = cex.get("retail")
-                    method = "RetroHQ UK Market Value uses the identity-validated CeX UK retail benchmark for the automatically selected condition grade. Cash and voucher trade-in are never used as market value. This will become a blended valuation when eBay UK and RetroHQ transaction evidence are available."
+                    method = "CeX UK retail is the identity-validated benchmark for the selected grade. RetroHQ then adjusts that benchmark for the actual item's known completeness. Cash and voucher trade-in are evidence only and are never used as market value."
                 else:
                     evidence.append({"provider":"CeX UK","status":cex.get("status","Unavailable"),"detail":cex.get("detail",""),"variants":cex.get("variants",[])})
                     market_value = None
