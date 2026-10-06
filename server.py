@@ -260,9 +260,20 @@ def cex_accessory_retail(platform):
         low=title.lower()
         if "controller" not in low: continue
         if any(x in low for x in ("console with","console +","bundle","charger","cable","case")): continue
-        # Require platform-specific evidence, but allow common PS/Xbox naming variants.
-        matched=sum(1 for term in required if term in low)
-        if matched < max(2,len(required)-1): continue
+        # Require platform-specific evidence, accepting common catalogue aliases such as PS3.
+        aliases={
+          "Original Xbox":("original xbox","xbox original"),
+          "Xbox 360":("xbox 360",),
+          "Xbox One":("xbox one",),
+          "Xbox Series S":("xbox series","series s","series x"),
+          "Xbox Series X":("xbox series","series x","series s"),
+          "PlayStation 2":("playstation 2","ps2"),
+          "PlayStation 3":("playstation 3","ps3"),
+          "PlayStation 4":("playstation 4","ps4"),
+          "PlayStation 5":("playstation 5","ps5"),
+        }.get(platform,())
+        if aliases and not any(term in low for term in aliases): continue
+        matched=1+sum(1 for term in required if term in low)
         retail=_cex_prices(h).get("retail")
         if retail is None or retail<=0: continue
         score=matched*10 + 2*len(set(normalize_words(query)) & set(normalize_words(title)))
@@ -291,7 +302,7 @@ def pc_call(url, params):
     with _pc_lock:
         wait = 1.05 - (time.monotonic() - _pc_last_call)
         if wait > 0: time.sleep(wait)
-        req = Request(url + "?" + urlencode(params), headers={"User-Agent":"RetroHQ-Internal-PoC/0.8"})
+        req = Request(url + "?" + urlencode(params), headers={"User-Agent":"RetroHQ-Internal-PoC/0.8.1"})
         try:
             with urlopen(req, timeout=12) as resp: return json.loads(resp.read().decode("utf-8"))
         except HTTPError as e:
