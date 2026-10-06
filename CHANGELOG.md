@@ -2,6 +2,15 @@
 
 ## Test 8.1 — Smart Valuation + Workflow Intelligence
 
+### Lifecycle hotfix
+
+- Fixed the Processing lifecycle bar incorrectly jumping visually back to Acquired for stages omitted from the shortened display.
+- Lifecycle display now represents the full processing path, including repair, pricing, packaging and delivery.
+- New Buy Check / Quick Capture inventory records now receive an explicit Acquired starting status.
+- Offer received is treated as an event while Listed rather than a compulsory lifecycle stage.
+- Existing items already at Offer received progress correctly to Sold instead of visually resetting.
+
+
 - Added item-specific Smart Valuation on top of the Test 8 Counter Flow.
 - Missing controller can now deduct a live, confidently matched CeX UK replacement benchmark.
 - Missing cables use a transparent configurable business allowance.
