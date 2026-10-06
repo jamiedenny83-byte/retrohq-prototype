@@ -1,5 +1,20 @@
 # RetroHQ Changelog
 
+## Test 8 — Counter Flow
+
+- Reworked Buy Check around the target flow: **type / scan → Enter → answer**.
+- Removed the separate CeX grade choice from normal use.
+- Reduced RetroHQ condition choices to **Excellent / Good / Poor**.
+- Added simple **Box / Controller / Cables** inclusion checks.
+- Added automatic console CeX mapping: Poor → Discounted; Good/Excellent + no box → Unboxed; Good/Excellent + box → Boxed.
+- CeX evidence refreshes automatically when condition or completeness changes.
+- Added confidence-based PriceCharting auto-locking so a clearly dominant match does not require a redundant confirmation click.
+- Ambiguous identities still require one user confirmation.
+- Live provider evidence is collapsed under **Why this value?** after a successful search.
+- Removed the double condition adjustment from Buy Check when the selected CeX grade already represents the item's condition.
+- Buy Check carries condition, accessories and the selected CeX grade into acquisition.
+- Test 7.4 remains available as the frozen rollback baseline.
+
 ## Test 7.4 — CeX Selection + Decision Maths
 
 - Fixed CeX multiple-choice card overlap.
