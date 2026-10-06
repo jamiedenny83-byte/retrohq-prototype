@@ -275,7 +275,10 @@ def cex_accessory_retail(platform, colour=None):
           "PlayStation 5":("playstation 5","ps5"),
         }.get(platform,())
         if aliases and not any(term in low for term in aliases): continue
-        matched=1+sum(1 for term in required if term in low)
+        if colour:
+            colour_terms={"scarlet red":("scarlet red","red"),"indigo":("indigo","purple"),"glacier":("glacier",)}.get(colour,(colour,))
+            if not any(term in low for term in colour_terms): continue
+        matched=1+sum(1 for term in required if term in low)+(2 if colour else 0)
         retail=_cex_prices(h).get("retail")
         if retail is None or retail<=0: continue
         score=matched*10 + 2*len(set(normalize_words(query)) & set(normalize_words(title)))
