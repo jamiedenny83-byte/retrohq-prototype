@@ -237,11 +237,10 @@ _CONTROLLER_QUERIES = {
     "PlayStation 5": ("Playstation 5 DualSense Controller", ("playstation", "5", "controller")),
 }
 
-def cex_accessory_retail(platform):
+def cex_accessory_retail(platform, colour=None):
     spec=_CONTROLLER_QUERIES.get(platform)
     if not spec: return {"ok":False,"status":"No accessory profile","detail":"No controller replacement profile is defined for this platform."}
-    query,required=spec
-    params=urlencode({"query":query,"hitsPerPage":30})
+    query,required=spec\n    colour=(colour or "").strip().lower()\n    if colour: query += " " + colour\n    params=urlencode({"query":query,"hitsPerPage":30})
     payload=json.dumps({"requests":[{"indexName":"prod_cex_uk","params":params}]}).encode("utf-8")
     global _cex_last_call
     with _cex_lock:
