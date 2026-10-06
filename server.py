@@ -496,8 +496,8 @@ class H(SimpleHTTPRequestHandler):
                     method = "No market value invented. Neither provider returned evidence that passed RetroHQ checks."
             self.send_json({"query":q,"barcode":barcode,"marketValue":market_value,"confidence":"uk-retail-benchmark" if market_value is not None else ("reference-only" if pc.get("ok") else "unavailable"),"evidence":evidence,"method":method,"lockedIdentity":identity,"pricechartingProductId":pc.get("id") if pc.get("ok") else None}); return
         if u.path == "/api/accessory-costs":
-            p=parse_qs(u.query); platform=(p.get("platform") or [""])[0].strip()
-            controller=cex_accessory_retail(platform) if platform else {"ok":False,"status":"No platform","detail":"No platform supplied."}
+            p=parse_qs(u.query); platform=(p.get("platform") or [""])[0].strip(); colour=(p.get("colour") or [""])[0].strip()
+            controller=cex_accessory_retail(platform,colour) if platform else {"ok":False,"status":"No platform","detail":"No platform supplied."}
             self.send_json({"platform":platform,"controller":controller,"cables":{"ok":False,"status":"Business allowance","detail":"Cable replacement uses the configurable RetroHQ business allowance until a reliable live component benchmark is connected."}}); return
         if u.path == "/api/provider-status":
             self.send_json({"pricecharting": bool(os.environ.get("PRICECHARTING_API_TOKEN")), "ebay": False, "cex": True}); return
