@@ -163,7 +163,7 @@ function updateCompletenessUI(identity){
 async function loadAccessoryCosts(identity){
  const p=completenessProfile(identity);window.buyCheckSession.accessoryCosts={};
  if(!p.controller||!identity?.platform)return;
- try{const r=await fetch('/api/accessory-costs?'+new URLSearchParams({platform:identity.platform}));const d=await r.json();if(d.controller?.ok)window.buyCheckSession.accessoryCosts.controller={amount:Number(d.controller.retail)||0,product:d.controller.product,source:'CeX UK live retail'};else window.buyCheckSession.accessoryCosts.controller=null;}catch(e){window.buyCheckSession.accessoryCosts.controller=null;}
+ try{const colour=(window.buyCheckSession?.condition||'Good')==='Poor'?'':(identity.attributes?.colour||'');const r=await fetch('/api/accessory-costs?'+new URLSearchParams({platform:identity.platform,colour}));const d=await r.json();if(d.controller?.ok)window.buyCheckSession.accessoryCosts.controller={amount:Number(d.controller.retail)||0,product:d.controller.product,source:'CeX UK live retail'};else window.buyCheckSession.accessoryCosts.controller=null;}catch(e){window.buyCheckSession.accessoryCosts.controller=null;}
 }
 function renderSmartValuation(){
  const s=window.buyCheckSession||{},box=$('#valuationBreakdown');if(!box)return;
