@@ -140,7 +140,7 @@ def cex_detail(product_id):
         wait=0.35-(time.monotonic()-_cex_last_call)
         if wait>0: time.sleep(wait)
         req=Request("https://wss2.cex.uk.webuy.io/v3/boxes/{}/detail".format(quote(str(product_id),safe="")),
-                    headers={"User-Agent":"RetroHQ-Internal-PoC/0.7.4 (+internal testing)"})
+                    headers={"User-Agent":"RetroHQ-Internal-PoC/0.8 (+internal testing)"})
         try:
             with urlopen(req,timeout=12) as resp: data=json.loads(resp.read().decode("utf-8"))
         except (HTTPError,URLError,TimeoutError,json.JSONDecodeError): return None
@@ -187,7 +187,7 @@ def cex_search(query, intent=None, limit=40, grade=None, identity=None, selected
     with _cex_lock:
         wait=1.05-(time.monotonic()-_cex_last_call)
         if wait>0: time.sleep(wait)
-        req=Request(CEX_SEARCH,data=payload,headers={"Content-Type":"application/json","User-Agent":"RetroHQ-Internal-PoC/0.7.4 (+internal testing)"},method="POST")
+        req=Request(CEX_SEARCH,data=payload,headers={"Content-Type":"application/json","User-Agent":"RetroHQ-Internal-PoC/0.8 (+internal testing)"},method="POST")
         try:
             with urlopen(req,timeout=12) as resp: data=json.loads(resp.read().decode("utf-8"))
         except (HTTPError,URLError,TimeoutError,json.JSONDecodeError) as e:
@@ -234,7 +234,7 @@ def pc_call(url, params):
     with _pc_lock:
         wait = 1.05 - (time.monotonic() - _pc_last_call)
         if wait > 0: time.sleep(wait)
-        req = Request(url + "?" + urlencode(params), headers={"User-Agent":"RetroHQ-Internal-PoC/0.7.4"})
+        req = Request(url + "?" + urlencode(params), headers={"User-Agent":"RetroHQ-Internal-PoC/0.8"})
         try:
             with urlopen(req, timeout=12) as resp: return json.loads(resp.read().decode("utf-8"))
         except HTTPError as e:
@@ -353,9 +353,13 @@ def pricecharting_lookup(query, barcode, selected_id=None):
         detail="No provider candidates passed RetroHQ's product-type and generation checks."
         if errors: detail += " Provider: " + errors[-1]
         return {"mode":"error","result":{"ok":False,"status":"No confident match","detail":detail},"intent":intent}
-    # Deliberately preserve click-to-confirm when multiple credible variants exist.
+    # Test 8 counter flow: auto-lock a clearly dominant match. Ask only when
+    # two or more candidates remain genuinely close.
     if len(top)>1:
-        return {"mode":"candidates","intent":intent,"candidates":top,"reason":"RetroHQ found credible matches for the interpreted item. Choose the exact variant."}
+        best_score=top[0].get("score",0); second_score=top[1].get("score",0)
+        confident=best_score>=30 and (best_score-second_score)>=6
+        if not confident:
+            return {"mode":"candidates","intent":intent,"candidates":top,"reason":"RetroHQ found more than one credible match. One confirmation is needed before pricing."}
     detail=pc_detail(product_id=top[0].get("id"))
     if detail.get("ok") and intent.get("type")=="hardware" and (detail.get("genre") or "").lower() not in ("","systems"):
         return {"mode":"error","result":{"ok":False,"status":"Rejected mismatch","detail":"The provider detail was not hardware, so RetroHQ rejected it."},"intent":intent}
@@ -401,7 +405,7 @@ class H(SimpleHTTPRequestHandler):
                     if cex.get("voucher") is not None: cparts.append(f"voucher £{cex['voucher']:.2f}")
                     evidence.append({"provider":"CeX UK","status":"Live","currency":"GBP","product":cex.get("product"),"productId":cex.get("productId"),"retail":cex.get("retail"),"cash":cex.get("cash"),"voucher":cex.get("voucher"),"stock":cex.get("stock"),"grade":cex.get("grade"),"matchQuality":cex.get("matchQuality"),"selectedByUser":cex.get("selectedByUser",False),"identity":identity,"detail":f"Matched: {cex.get('product')}. " + " · ".join(cparts)})
                     market_value = cex.get("retail")
-                    method = "Preliminary RetroHQ UK Market Value uses the identity-validated CeX UK retail benchmark. Cash and voucher trade-in are never used as market value. This will become a blended valuation when eBay UK and RetroHQ transaction evidence are available."
+                    method = "RetroHQ UK Market Value uses the identity-validated CeX UK retail benchmark for the automatically selected condition grade. Cash and voucher trade-in are never used as market value. This will become a blended valuation when eBay UK and RetroHQ transaction evidence are available."
                 else:
                     evidence.append({"provider":"CeX UK","status":cex.get("status","Unavailable"),"detail":cex.get("detail",""),"variants":cex.get("variants",[])})
                     market_value = None
@@ -424,6 +428,6 @@ class H(SimpleHTTPRequestHandler):
 
 if __name__ == "__main__":
     port=int(os.environ.get("PORT","8006"))
-    print(f"RetroHQ Test 7.4 — CeX Selection + Decision Maths: http://localhost:{port}")
+    print(f"RetroHQ Test 8 — Counter Flow: http://localhost:{port}")
     print("PriceCharting token:", "loaded" if os.environ.get("PRICECHARTING_API_TOKEN") else "MISSING")
     ThreadingHTTPServer(("0.0.0.0",port),H).serve_forever()
