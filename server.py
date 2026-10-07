@@ -3,7 +3,7 @@ from urllib.parse import urlparse, parse_qs, urlencode, quote
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 from pathlib import Path
-import json, os, time, threading, re
+import json, os, time, threading, re, base64, statistics
 
 ROOT = Path(__file__).resolve().parent
 PC_PRODUCT = "https://www.pricecharting.com/api/product"
@@ -14,6 +14,82 @@ _pc_last_call = 0.0
 CEX_SEARCH = "https://search.webuy.io/1/indexes/*/queries"
 _cex_lock = threading.Lock()
 _cex_last_call = 0.0
+
+# eBay Browse API — UK active-listing evidence.
+# Secrets stay server-side in Codespaces/environment variables.
+_ebay_token_cache = {"token": None, "expires": 0}
+
+def _ebay_base():
+    return "https://api.sandbox.ebay.com" if os.environ.get("EBAY_ENV","production").lower()=="sandbox" else "https://api.ebay.com"
+
+def ebay_access_token():
+    client_id=os.environ.get("EBAY_CLIENT_ID","").strip()
+    client_secret=os.environ.get("EBAY_CLIENT_SECRET","").strip()
+    if not client_id or not client_secret:
+        return {"ok":False,"status":"Credentials not loaded","detail":"Set EBAY_CLIENT_ID and EBAY_CLIENT_SECRET in the server environment."}
+    now=time.time()
+    if _ebay_token_cache.get("token") and now < _ebay_token_cache.get("expires",0)-60:
+        return {"ok":True,"token":_ebay_token_cache["token"]}
+    basic=base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
+    body=urlencode({"grant_type":"client_credentials","scope":"https://api.ebay.com/oauth/api_scope"}).encode()
+    req=Request(_ebay_base()+"/identity/v1/oauth2/token",data=body,headers={
+        "Authorization":"Basic "+basic,
+        "Content-Type":"application/x-www-form-urlencoded"
+    },method="POST")
+    try:
+        with urlopen(req,timeout=12) as r:
+            data=json.loads(r.read().decode())
+        token=data.get("access_token")
+        if not token: return {"ok":False,"status":"OAuth error","detail":"eBay did not return an application access token."}
+        _ebay_token_cache.update(token=token,expires=now+int(data.get("expires_in",7200)))
+        return {"ok":True,"token":token}
+    except HTTPError as e:
+        detail=e.read().decode(errors="ignore")[:500]
+        return {"ok":False,"status":f"eBay OAuth HTTP {e.code}","detail":detail}
+    except Exception as e:
+        return {"ok":False,"status":"eBay OAuth unavailable","detail":str(e)}
+
+def ebay_browse_search(query, limit=12):
+    if not (query or "").strip():
+        return {"ok":False,"status":"No query","detail":"Enter an item to search eBay UK."}
+    auth=ebay_access_token()
+    if not auth.get("ok"): return auth
+    params=urlencode({
+        "q":query.strip(),
+        "limit":max(1,min(int(limit),20)),
+        "filter":"itemLocationCountry:GB"
+    })
+    req=Request(_ebay_base()+"/buy/browse/v1/item_summary/search?"+params,headers={
+        "Authorization":"Bearer "+auth["token"],
+        "X-EBAY-C-MARKETPLACE-ID":"EBAY_GB",
+        "Accept":"application/json"
+    })
+    try:
+        with urlopen(req,timeout=15) as r:
+            data=json.loads(r.read().decode())
+        items=[]
+        prices=[]
+        for x in data.get("itemSummaries",[]) or []:
+            p=x.get("price") or {}
+            currency=p.get("currency")
+            value=_num(p.get("value"))
+            if value is not None and currency=="GBP": prices.append(value)
+            items.append({
+                "itemId":x.get("itemId"),"title":x.get("title"),"price":value,"currency":currency,
+                "condition":x.get("condition"),"buyingOptions":x.get("buyingOptions",[]),
+                "itemWebUrl":x.get("itemWebUrl"),"seller":(x.get("seller") or {}).get("username")
+            })
+        return {
+            "ok":True,"status":"Live","marketplace":"EBAY_GB","count":len(items),
+            "total":data.get("total"),"items":items,
+            "medianAsking":round(statistics.median(prices),2) if prices else None,
+            "lowAsking":min(prices) if prices else None,"highAsking":max(prices) if prices else None
+        }
+    except HTTPError as e:
+        detail=e.read().decode(errors="ignore")[:700]
+        return {"ok":False,"status":f"eBay Browse HTTP {e.code}","detail":detail}
+    except Exception as e:
+        return {"ok":False,"status":"eBay Browse unavailable","detail":str(e)}
 
 def _first(d, *keys):
     for k in keys:
@@ -458,9 +534,16 @@ class H(SimpleHTTPRequestHandler):
                 self.send_json({"query":q,"barcode":barcode,"marketValue":None,"confidence":"needs-confirmation","needsConfirmation":True,"intent":lookup.get("intent"),"candidates":lookup.get("candidates",[]),"reason":lookup.get("reason")}); return
             pc = lookup.get("result", {})
             identity = canonical_identity(q,pc,lookup.get("intent") or infer_intent(q)) if pc.get("ok") else None
-            evidence = [
-                {"provider":"eBay UK","status":"Waiting for API approval","detail":"Provider slot ready; no eBay figure invented."}
-            ]
+            ebay = ebay_browse_search(q, 12)
+            if ebay.get("ok"):
+                evidence = [{"provider":"eBay UK","status":"Live","currency":"GBP","marketplace":"EBAY_GB",
+                    "count":ebay.get("count"),"total":ebay.get("total"),"medianAsking":ebay.get("medianAsking"),
+                    "lowAsking":ebay.get("lowAsking"),"highAsking":ebay.get("highAsking"),
+                    "items":ebay.get("items",[])[:6],
+                    "detail":f"Live UK active listings: {ebay.get('count',0)} sampled. Median asking £{ebay.get('medianAsking'):.2f}." if ebay.get("medianAsking") is not None else "Live UK active listings found; no GBP asking-price summary available."}]
+            else:
+                evidence = [{"provider":"eBay UK","status":ebay.get("status","Unavailable"),"detail":ebay.get("detail","")}]
+
             if pc.get("ok"):
                 pr = pc["prices"]
                 parts=[]
@@ -499,12 +582,19 @@ class H(SimpleHTTPRequestHandler):
             p=parse_qs(u.query); platform=(p.get("platform") or [""])[0].strip(); colour=(p.get("colour") or [""])[0].strip()
             controller=cex_accessory_retail(platform,colour) if platform else {"ok":False,"status":"No platform","detail":"No platform supplied."}
             self.send_json({"platform":platform,"controller":controller,"cables":{"ok":False,"status":"Business allowance","detail":"Cable replacement uses the configurable RetroHQ business allowance until a reliable live component benchmark is connected."}}); return
+        if u.path == "/api/ebay-search":
+            p=parse_qs(u.query); q=(p.get("q") or [""])[0].strip()
+            self.send_json(ebay_browse_search(q,12)); return
         if u.path == "/api/provider-status":
-            self.send_json({"pricecharting": bool(os.environ.get("PRICECHARTING_API_TOKEN")), "ebay": False, "cex": True}); return
+            self.send_json({"pricecharting": bool(os.environ.get("PRICECHARTING_API_TOKEN")),
+                            "ebay": bool(os.environ.get("EBAY_CLIENT_ID") and os.environ.get("EBAY_CLIENT_SECRET")),
+                            "ebayEnvironment":os.environ.get("EBAY_ENV","production"),
+                            "cex": True}); return
         super().do_GET()
 
 if __name__ == "__main__":
     port=int(os.environ.get("PORT","8006"))
     print(f"RetroHQ Test 8.1 — Smart Valuation + Workflow Intelligence: http://localhost:{port}")
     print("PriceCharting token:", "loaded" if os.environ.get("PRICECHARTING_API_TOKEN") else "MISSING")
+    print("eBay credentials:", "loaded" if os.environ.get("EBAY_CLIENT_ID") and os.environ.get("EBAY_CLIENT_SECRET") else "MISSING", "·", os.environ.get("EBAY_ENV","production"))
     ThreadingHTTPServer(("0.0.0.0",port),H).serve_forever()
