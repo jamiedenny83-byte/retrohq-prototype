@@ -1,0 +1,16 @@
+# Python generated files
+__pycache__/
+*.py[cod]
+
+# Secrets and local environment
+.env
+.env.*
+!.env.example
+
+# Local editor / OS files
+.DS_Store
+.vscode/
+
+# Temporary archives and logs
+*.zip
+*.log
