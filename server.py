@@ -594,7 +594,7 @@ class H(SimpleHTTPRequestHandler):
 
 if __name__ == "__main__":
     port=int(os.environ.get("PORT","8006"))
-    print(f"RetroHQ Test 8.1 — Smart Valuation + Workflow Intelligence: http://localhost:{port}")
+    print(f"RetroHQ Test 8.2 — Daily Operations + Market Expansion: http://localhost:{port}")
     print("PriceCharting token:", "loaded" if os.environ.get("PRICECHARTING_API_TOKEN") else "MISSING")
     print("eBay credentials:", "loaded" if os.environ.get("EBAY_CLIENT_ID") and os.environ.get("EBAY_CLIENT_SECRET") else "MISSING", "·", os.environ.get("EBAY_ENV","production"))
     ThreadingHTTPServer(("0.0.0.0",port),H).serve_forever()
