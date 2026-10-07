@@ -1,5 +1,24 @@
 # RetroHQ Changelog
 
+## Test 8.2 — Daily Operations + Market Expansion
+
+- Created the daily-operations test branch from Test 8.1.
+- Made item status the authoritative lifecycle state across the workspace.
+- Added safe sale reversal from Sold / completed in-store sales while preserving sale history.
+- Listed → Next Stage now opens the sale form instead of inventing a sale.
+- Added a proper Customer Return workflow with email, reason, refund and notes.
+- Returned items re-enter active stock as **Needs repair** and are flagged for revaluation.
+- Replaced the cluttered Lifecycle-at-a-glance dashboard card with Stock Health.
+- Added Items in Stock, Current Stock Value, Capital in Stock and Sold Value.
+- Added stock mix and games/consoles by system with a low-stock signal.
+- Added Trading Card as a first-class stock category and expanded collectible manufacturers.
+- Replaced demonstration HQ Market movers with a live provider lookup.
+- Added server-side eBay Browse API adapter for **EBAY_GB** active listings.
+- eBay active asking prices are retained as evidence and are not misrepresented as sold prices.
+- PriceCharting remains live for identity, reference pricing and sales volume; it is not blindly averaged into UK valuation.
+- Test 8.1 remains frozen as the rollback baseline.
+
+
 ## Test 8.1 — Smart Valuation + Workflow Intelligence
 
 ### Lifecycle hotfix
