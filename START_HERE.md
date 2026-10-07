@@ -1,122 +1,117 @@
-# RetroHQ Test 8.1 — Smart Valuation + Workflow Intelligence
+# RetroHQ Test 8.2 — Daily Operations + Market Expansion
 
-Test 8.1 is the first wider-system test built from the working Test 8 Counter Flow. Test 8 remains frozen as the rollback baseline.
+Test 8.2 is the first daily-operations build. Test 8.1 remains frozen as the rollback baseline.
+
+## Before starting: provider secrets
+
+Keep all API credentials out of ChatGPT and out of the repository.
+
+The server reads:
+
+- `PRICECHARTING_API_TOKEN`
+- `EBAY_CLIENT_ID` — eBay App ID / Client ID
+- `EBAY_CLIENT_SECRET` — eBay Cert ID / Client Secret
+- `EBAY_ENV` — optional; defaults to `production`. Use `sandbox` with Sandbox keys.
+
+For Codespaces, store the eBay values as Codespaces secrets so they are exposed to the running Codespace as environment variables. Never commit them to a file.
 
 ## Start it
 
 ```bash
 git fetch origin
-git switch retrohq-test-8.1
+git switch retrohq-test-8.2
 git pull
 
 pkill -f "server.py" 2>/dev/null || true
 fuser -k 8006/tcp 2>/dev/null || true
 
 export PRICECHARTING_API_TOKEN="YOUR_GENERAL_API_TOKEN_HERE"
-
-if [ -n "$PRICECHARTING_API_TOKEN" ]; then echo "✓ PriceCharting token loaded"; else echo "✗ Token missing"; fi
+export EBAY_ENV="production"
 
 python3 server.py
 ```
 
-Expected terminal line:
+If eBay Codespaces secrets are configured, the terminal should report:
 
 ```text
-RetroHQ Test 8.1 — Smart Valuation + Workflow Intelligence: http://localhost:8006
+RetroHQ Test 8.2 — Daily Operations + Market Expansion: http://localhost:8006
+PriceCharting token: loaded
+eBay credentials: loaded · production
 ```
 
 Open forwarded **port 8006** and hard refresh with **Ctrl + Shift + R**.
 
 ## What is new
 
-### 1. Smart valuation
+### 1. One authoritative lifecycle
 
-CeX remains a UK benchmark, but RetroHQ now values the actual item.
+The item status is now the lifecycle state shown across the workspace. Sale fulfilment no longer overrides the lifecycle bar.
 
-For supported consoles:
+- Listed → Next Stage opens Record Sale rather than creating a fake sale.
+- Sold → Previous Stage reverses the sale back to Listed while preserving the original sale in history.
+- Packaged / Dispatched / Delivered can move forwards and backwards while keeping sale fulfilment in sync.
+- In-store completed sales can also be reversed without deleting their history.
 
-- Condition still selects the appropriate CeX catalogue grade.
-- Box controls Boxed vs Unboxed where applicable.
-- A missing controller triggers a live CeX UK controller replacement lookup when RetroHQ can make a confident platform-specific match.
-- Missing cables use the configurable **Missing cable replacement allowance** in Settings.
-- Known replacement costs are deducted from the CeX retail benchmark.
-- Unresolved replacement evidence is shown rather than silently inventing a figure.
-- The full calculation is stored with the item.
+### 2. Customer returns
 
-### 2. One valuation across RetroHQ
+Customer Return now captures:
 
-A Test 8.1 item carries the same stored RetroHQ UK Market Value into:
+- Customer email
+- Return reason
+- Refund amount
+- Notes
 
-- Inventory
-- Item Workspace
-- HQ Today
-- Processing
-- Reports
+The original sale is retained in history. The active sale/listing is cleared, the physical item returns to active stock as **Needs repair**, its location becomes **Repair Queue**, and its valuation is marked for review.
 
-The old condition multiplier is not applied again to a stored smart valuation.
+### 3. Stock health dashboard
 
-### 3. HQ Today / workflow intelligence
+HQ Today now shows:
 
-“What should I do next?” now considers:
+- Items in stock
+- Current stock market value
+- Capital invested in current stock
+- Current recorded sold value
+- Stock mix by category
+- Games/consoles by system
+- Low-stock signal for systems with three or fewer active items
 
-- Ready to dispatch
-- Needs identification
-- Needs valuation
-- Missing essential accessories
-- Ready to list
-- Normal processing stages
+### 4. Toys and trading cards
 
-Each item gets one highest-priority next action.
+**Trading Card** is now a first-class inventory/acquisition category alongside Toy, Video Game, Console and the existing categories.
 
-### 4. Inventory intelligence
+The live market lookup is deliberately provider-aware: unsupported evidence is shown as missing rather than fabricated.
 
-Inventory now shows compact workflow signals and can filter by:
+### 5. Live HQ Market
 
-- Needs valuation
-- Missing essentials
-- Ready to list
-- Sold
+HQ Market no longer presents the old demonstration movers as if they were live intelligence.
 
-### 5. Item Workspace
+It now has a live provider lookup using the same market endpoint as Buy Check:
 
-The item record now exposes:
+- CeX UK evidence
+- PriceCharting reference data and sales volume
+- eBay UK active-listing evidence when credentials/access permit
 
-- Stored valuation breakdown
-- Completeness
-- Missing essentials
-- Acquisition value
-- Recommended maximum buy
-- Expected profit
-- Lifecycle strip
-- Actual profit after sale
+eBay active listings are labelled as **asking-price evidence**, not sold evidence.
 
-### 6. Buy → Sell feedback loop
+### 6. eBay UK adapter
 
-Reports now starts comparing:
+The server now supports eBay Browse API authentication using server-side OAuth client credentials and searches the **EBAY_GB** marketplace.
 
-**valuation when bought → amount paid → sale price → fees/costs → actual profit → days to sell**
+RetroHQ records a sample count, low/high active asking prices and median active asking price. These figures are evidence only; they are not silently promoted to completed-sale market value.
 
-This is the first foundation for RetroHQ learning from its own transaction history.
+## Important valuation rule
 
-## Suggested wider-system test
+PriceCharting is already part of RetroHQ's evidence engine for identity, reference prices and sales volume. It is **not blindly averaged into the UK £ valuation**.
 
-1. Buy Check: search **PS3 Slim 320GB Scarlet Red**.
-2. Leave Controller and Cables unticked. Confirm that the CeX benchmark is adjusted rather than copied directly.
-3. Tick Controller. The controller deduction should disappear.
-4. Tick Cables. The cable allowance should disappear.
-5. Enter an asking price and check the **BUY / OVER TARGET** answer.
-6. Choose **BUY → ACQUIRE**, finish the acquisition and save it.
-7. Open **Inventory**. Confirm the same RetroHQ value is shown.
-8. Open the **Item Workspace**. Check Overview, Acquisition, Market and Timeline.
-9. Unticked essential accessories should surface in **HQ Today** and **Processing**.
-10. Use the Inventory workflow filters.
-11. Progress the item through lifecycle stages and create a listing.
-12. Record a sale. Open **Reports** and check the buy-to-sell feedback information.
+For UK games/consoles, territory-appropriate UK evidence remains primary. For cards and supported collectibles, PriceCharting can carry more weight as the category engine develops, but RetroHQ will keep the source and confidence visible.
 
-## Important Test 8.1 rule
+## Suggested Test 8.2 pass
 
-A missing-accessory deduction is only automatic when RetroHQ has a defined evidence source:
-
-- **Controller:** live CeX UK retail replacement evidence where confidently matched.
-- **Cables:** configurable RetroHQ business allowance.
-- If evidence is not trusted, RetroHQ flags the adjustment as unresolved instead of fabricating a number.
+1. Open Dashboard and check Stock Health and system counts.
+2. Open the PS3 Game Bundle and test Previous Stage from Sold. It should return to Listed and preserve the old sale in history.
+3. Record a new sale and progress Sold → Packaged → Dispatched → Delivered → Completed, then test reversing stages.
+4. Use Customer Return on a sold item. Enter an email, reason, refund and note. Confirm it returns to stock as **Needs repair**.
+5. Open HQ Market and search a game, console, trading card and toy.
+6. Confirm PriceCharting and CeX evidence behave as before.
+7. Once eBay secrets are configured, confirm HQ Market reports **eBay UK LIVE** and shows active UK asking-price evidence.
+8. Add a Trading Card and Toy through acquisition/inventory and confirm they appear in Stock Health.
