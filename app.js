@@ -314,10 +314,10 @@ window.findCandidates=async()=>{
    return;
   }
   const ev=data.evidence||[],cex=ev.find(x=>x.provider==='CeX UK');
-  const summary=ev.map(x=>'<div class="evidence-row"><strong>'+quickSafeHtml(x.provider)+' — '+quickSafeHtml(x.status)+'</strong><small>'+quickSafeHtml(x.detail||'')+'</small></div>').join('');
+  const summary=ev.map(x=>'<div class="evidence-row"><strong>'+quickSafeHtml(x.provider)+' — '+quickSafeHtml(x.status)+'</strong><small>'+quickSafeHtml(x.detail||'')+'</small>'+(x.provider==='CeX UK'&&x.status==='Live'?'<div class="cex-price-grid"><span><small>Retail</small><b>'+(x.retail!=null?money(x.retail):'Unavailable')+'</b></span><span><small>Cash trade-in</small><b>'+cexTradeText(x.cash,x.cashSource)+'</b></span><span><small>Voucher trade-in</small><b>'+cexTradeText(x.voucher,x.voucherSource)+'</b></span></div><small>'+quickSafeHtml([cexTradeHint(x.cashSource),cexTradeHint(x.voucherSource)].filter(Boolean).filter((v,i,a)=>a.indexOf(v)===i).join(' · '))+'</small>':'')+'</div>').join('');
   let actions='';
   if(cex?.variants?.length){
-   actions='<p class="muted">Choose the exact CeX variant:</p><div class="candidate-list">'+cex.variants.map(x=>'<button class="candidate-card" onclick="quickCaptureSelectCeX('+quickJsArg(x.productId)+','+quickJsArg(x.grade)+')"><strong>'+quickSafeHtml(x.product)+'</strong><small>Retail '+(x.retail!=null?money(x.retail):'—')+' · '+quickSafeHtml(x.grade)+'</small></button>').join('')+'</div>';
+   actions='<p class="muted">Choose the exact CeX variant:</p><div class="candidate-list">'+cex.variants.map(x=>'<button class="candidate-card" onclick="quickCaptureSelectCeX('+quickJsArg(x.productId)+','+quickJsArg(x.grade)+')"><strong>'+quickSafeHtml(x.product)+'</strong><small>Retail '+(x.retail!=null?money(x.retail):'—')+' · Cash '+cexTradeText(x.cash,x.cashSource)+' · Voucher '+cexTradeText(x.voucher,x.voucherSource)+' · '+quickSafeHtml(x.grade)+'</small></button>').join('')+'</div>';
   }else if(cex?.status==='Live'&&cex.productId&&data.marketValue==null){
    actions='<button class="btn primary" onclick="quickCaptureSelectCeX('+quickJsArg(cex.productId)+','+quickJsArg(cex.grade||quickCaptureGrade())+')">Confirm this exact CeX match — '+quickSafeHtml(cex.product)+'</button>';
   }
