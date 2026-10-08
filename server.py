@@ -1,9 +1,10 @@
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
-from urllib.parse import urlparse, parse_qs, urlencode, quote
+from urllib.parse import urlparse, parse_qs, urlencode, quote, unquote
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 from pathlib import Path
 import json, os, time, threading, re, base64, statistics
+import ebay_seller
 
 ROOT = Path(__file__).resolve().parent
 PC_PRODUCT = "https://www.pricecharting.com/api/product"
@@ -516,15 +517,67 @@ def pricecharting_lookup(query, barcode, selected_id=None):
 
 class H(SimpleHTTPRequestHandler):
     def translate_path(self, path):
-        clean = urlparse(path).path.lstrip("/")
-        return str(ROOT / (clean or "index.html"))
+        # Never serve hidden files, credentials or paths outside the project root.
+        clean = unquote(urlparse(path).path).lstrip("/")
+        parts = Path(clean).parts
+        if any(part.startswith(".") for part in parts):
+            return str(ROOT / "__not_found__")
+        candidate = (ROOT / (clean or "index.html")).resolve()
+        if not candidate.is_relative_to(ROOT.resolve()):
+            return str(ROOT / "__not_found__")
+        return str(candidate)
+    def log_message(self, format, *args):
+        # The OAuth callback query contains a one-use authorization code.
+        if "/ebay/oauth/callback" in self.path:
+            return
+        super().log_message(format, *args)
     def send_json(self, body, status=200):
         raw = json.dumps(body).encode("utf-8")
         self.send_response(status); self.send_header("Content-Type", "application/json")
-        self.send_header("Cache-Control", "no-store"); self.send_header("Content-Length", str(len(raw)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Content-Length", str(len(raw))
         self.end_headers(); self.wfile.write(raw)
+    def do_POST(self):
+        u = urlparse(self.path)
+        if u.path not in ("/api/ebay-seller/start", "/api/ebay-seller/test"):
+            self.send_json({"ok": False, "status": "Not found."}, 404); return
+        if self.headers.get("X-RetroHQ-Action") != "seller-oauth" or self.headers.get("Sec-Fetch-Site", "same-origin") != "same-origin":
+            self.send_json({"ok": False, "status": "Request blocked."}, 403); return
+        try:
+            size = int(self.headers.get("Content-Length", "0"))
+            if size < 1 or size > 1024:
+                self.send_json({"ok": False, "status": "Invalid request size."}, 400); return
+            payload = json.loads(self.rfile.read(size).decode("utf-8"))
+        except (ValueError, UnicodeError):
+            self.send_json({"ok": False, "status": "Invalid request."}, 400); return
+        if not isinstance(payload, dict) or not ebay_seller.admin_pin_valid(payload.get("pin")):
+            self.send_json({"ok": False, "status": "Invalid administrator PIN or PIN not configured."}, 403); return
+        if u.path == "/api/ebay-seller/start":
+            result = ebay_seller.start_authorisation()
+        else:
+            result = ebay_seller.test_connection()
+        self.send_json(result, 200 if result.get("ok") else 400)
+
     def do_GET(self):
         u = urlparse(self.path)
+        if u.path == "/ebay/oauth/callback":
+            q = parse_qs(u.query)
+            result = ebay_seller.complete_authorisation(
+                (q.get("state") or [""])[0],
+                (q.get("code") or [None])[0],
+                (q.get("error") or [None])[0],
+            )
+            self.send_response(303)
+            self.send_header("Location", "/?ebaySeller=" + ("connected" if result.get("ok") else "error"))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Referrer-Policy", "no-referrer")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        if u.path == "/api/ebay-seller/status":
+            self.send_json(ebay_seller.configuration()); return
         if u.path == "/api/market-search":
             p = parse_qs(u.query); q=(p.get("q") or [""])[0].strip(); barcode=(p.get("barcode") or [""])[0].strip(); selected_id=(p.get("id") or [""])[0].strip(); cex_grade=(p.get("cexGrade") or [""])[0].strip() or None; cex_id=(p.get("cexId") or [""])[0].strip() or None
             lookup = pricecharting_lookup(q, barcode, selected_id)
@@ -594,7 +647,7 @@ class H(SimpleHTTPRequestHandler):
 
 if __name__ == "__main__":
     port=int(os.environ.get("PORT","8006"))
-    print(f"RetroHQ Test 8.2 — Daily Operations + Market Expansion: http://localhost:{port}")
+    print(f"RetroHQ Test 8.3 — Sandbox Seller OAuth: http://localhost:{port}")
     print("PriceCharting token:", "loaded" if os.environ.get("PRICECHARTING_API_TOKEN") else "MISSING")
     print("eBay credentials:", "loaded" if os.environ.get("EBAY_CLIENT_ID") and os.environ.get("EBAY_CLIENT_SECRET") else "MISSING", "·", os.environ.get("EBAY_ENV","production"))
     ThreadingHTTPServer(("0.0.0.0",port),H).serve_forever()
