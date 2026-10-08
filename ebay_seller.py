@@ -82,12 +82,22 @@ def configuration():
             missing.append(label)
     if not _sandbox():
         missing.append("EBAY_ENV=sandbox")
+    pin = os.environ.get("RETROHQ_ADMIN_PIN", "")
+    # Diagnostic reveals only whether the Codespaces secret is usable,
+    # never its value or length.
+    pin_status = ("Missing" if not pin else
+                  "Too short — set at least 8 characters" if len(pin) < 8 else
+                  "Has leading or trailing whitespace" if pin != pin.strip() else
+                  "Ready")
+    if pin and len(pin) < 8:
+        missing.append("RETROHQ_ADMIN_PIN must be at least 8 characters")
     saved = _read_store() if _sandbox() else None
     connected = bool(saved and saved.get("refresh_expires_at", 0) > time.time())
     return {
         "environment": os.environ.get("EBAY_ENV", "production"),
         "configured": not missing,
         "missing": missing,
+        "pinStatus": pin_status,
         "connected": connected,
         "status": "Connected" if connected else ("Configuration needed" if missing else "Not connected"),
     }
@@ -97,6 +107,18 @@ def admin_pin_valid(candidate):
     expected = os.environ.get("RETROHQ_ADMIN_PIN", "")
     return bool(expected and len(expected) >= 8 and isinstance(candidate, str) and
                 hmac.compare_digest(candidate, expected))
+
+
+def admin_pin_error():
+    """Return a safe, actionable error without exposing the PIN or its length."""
+    status = configuration()["pinStatus"]
+    if status == "Missing":
+        return "RETROHQ_ADMIN_PIN is not loaded. Restart the entire Codespace after saving the secret."
+    if status.startswith("Too short"):
+        return "RETROHQ_ADMIN_PIN is too short. Set at least 8 characters in Codespaces secrets, then restart the Codespace."
+    if status == "Has leading or trailing whitespace":
+        return "PIN did not match. The saved Codespaces secret contains surrounding spaces. Check the secret and restart the Codespace."
+    return "PIN did not match the Codespaces secret. Check the exact value, then restart the Codespace if you recently changed it."
 
 
 def _basic_header():
