@@ -214,6 +214,15 @@ def cex_identity_quality(title, identity):
 def _cex_candidate_score(title, category, search_query, intent, identity, grade=None):
     hay=(title+" "+category).lower(); qwords=set(normalize_words(search_query)); words=set(normalize_words(title+" "+category))
     score=2*len(qwords & words)
+    if intent.get("type")=="software":
+        # Match the game TITLE and console platform, never just shared words like PS2.
+        game_words=set(normalize_words(intent.get("gameTitle") or search_query))
+        name_words=set(normalize_words(title))
+        if not game_words or not game_words.issubset(name_words): return None
+        if any(x in title.lower() for x in (" console", " system")): return None
+        score+=18
+        if " ".join(normalize_words(title)).startswith(" ".join(normalize_words(intent.get("gameTitle") or ""))):
+            score+=8
     if intent.get("type")=="hardware":
         if any(x in hay for x in ("software"," games","accessor","case","controller","cable","charger","adapter","headset")): return None
         if not any(x in hay for x in ("console","consoles","system","handheld","gameboy","game boy")): return None
@@ -296,7 +305,9 @@ def cex_search(query, intent=None, limit=40, grade=None, identity=None, selected
       "Xbox Series S":"Xbox Series S Console","Xbox Series X":"Xbox Series X Console",
       "PlayStation 2":"PlayStation 2 Console","PlayStation 3":"PlayStation 3 Console","PlayStation 4":"PlayStation 4 Console",
       "PlayStation 5":"PlayStation 5 Console","Game Boy Advance":"Gameboy Advance Console","Game Boy Color":"Gameboy Color Console"}
-    search_query=aliases.get(platform,query) if intent.get("type")=="hardware" else query
+    # CeX's UK catalogue search is strongest with the game title alone.
+    # Filter candidates by PS2/PS3/etc *after* searching, never by console keyword.
+    search_query=aliases.get(platform,query) if intent.get("type")=="hardware" else (intent.get("gameTitle") or query)
     attrs=identity.get("attributes") or {}
     for val in (attrs.get("revision"),attrs.get("storage"),attrs.get("colour")):
         if val and val.lower() not in search_query.lower(): search_query+=" "+val
@@ -348,18 +359,19 @@ def cex_search(query, intent=None, limit=40, grade=None, identity=None, selected
         return {"ok":False,"status":"CeX exact match unavailable","detail":"The selected CeX record could not be refreshed. Choose a CeX match again."}
     if not ranked or ranked[0][0]<12:
         return {"ok":False,"status":"No confident CeX match","detail":"CeX returned no candidate that passed RetroHQ's locked product identity checks."}
-    if intent.get("type")=="hardware":
-        # Several near-equal variants require confirmation even if grade is known.
+    if intent.get("type") in ("hardware","software"):
+        # Games may have standard, Platinum, Director's Cut or regional variants.
+        # Explicitly confirm a game edition before using CeX as a UK benchmark.
         variants=[]; seen=set(); best=ranked[0][0]
         for sc,cand in ranked[:16]:
-            if sc<best-5: continue
+            if sc<best-(14 if intent.get("type")=="software" else 5): continue
             nm=str(_first(cand,"boxName","name","title","productName") or ""); pid=str(_first(cand,"boxId","box_id","objectID","id") or "")
             if not pid or pid in seen: continue
             seen.add(pid); prices=_cex_prices(cand)
             variants.append({"productId":pid,"grade":cex_grade_from_title(nm) or "CeX variant","product":nm,**prices})
             if len(variants)>=6: break
-        if len(variants)>1:
-            return {"ok":False,"status":"CeX variant needed","detail":"Multiple credible CeX catalogue records match the locked product. Choose the exact CeX record to continue.","variants":variants}
+        if len(variants)>1 or (intent.get("type")=="software" and variants):
+            return {"ok":False,"status":"CeX variant needed","detail":"Confirm the exact CeX game edition before adopting its UK retail value." if intent.get("type")=="software" else "Multiple credible CeX catalogue records match the locked product. Choose the exact CeX record to continue.","variants":variants}
     return exact_result(ranked[0][1],False)
 
 # Test 8.1 — live replacement-cost evidence for essential console accessories.
