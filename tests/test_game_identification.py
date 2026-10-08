@@ -109,7 +109,7 @@ class GameIdentificationTests(unittest.TestCase):
         params=payload["requests"][0]["params"]
         from urllib.parse import parse_qs
         searched=parse_qs(params)["query"][0]
-        self.assertEqual(searched,query)
+        self.assertEqual(searched,"silent hill 2")
         self.assertNotIn("Console",searched)
         self.assertNotIn("Unboxed",searched)
 
