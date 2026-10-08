@@ -60,12 +60,12 @@ If you create a different Codespace with a new URL, update the Auth Accepted URL
 
 In RetroHQ → **Settings**:
 
-1. Click **Connect eBay Seller**.
-2. Enter the private `RETROHQ_ADMIN_PIN` when prompted (never share it in chat).
+1. Enter the private `RETROHQ_ADMIN_PIN` in the masked PIN field in Settings (never share it in chat).
+2. Click **Connect eBay Seller**.
 3. Sign in to eBay Sandbox as `testuser_retrohq_seller`.
 4. Click **Agree and Continue**.
 5. eBay redirects to RetroHQ Settings. The connection should show **Seller authorised**.
-6. Click **Test seller APIs** and enter your PIN again. This makes **read-only** Inventory and Fulfilment API calls. No listings, purchases, or orders are created.
+6. Enter your PIN again in Settings and click **Test seller APIs**. This makes **read-only** Inventory and Fulfilment API calls. No listings, purchases, or orders are created.
 
 A failed Inventory/Orders check may mean the Sandbox seller has no test data, a permission is missing, or eBay Sandbox has limited support. The test shows each API result separately.
 
