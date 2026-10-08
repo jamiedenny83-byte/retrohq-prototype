@@ -102,7 +102,9 @@ class GameIdentificationTests(unittest.TestCase):
             "results":[{"hits":[hit]}]
         })) as fake:
             result=server.cex_search(query,intent,grade="Unboxed")
-        self.assertTrue(result["ok"],result)
+        self.assertFalse(result["ok"], result)
+        self.assertEqual(result["status"], "CeX variant needed")
+        self.assertEqual(result["variants"][0]["product"], "Silent Hill 2 (PS2)")
         payload=json.loads(fake.call_args.args[0].data)
         params=payload["requests"][0]["params"]
         from urllib.parse import parse_qs
@@ -110,6 +112,71 @@ class GameIdentificationTests(unittest.TestCase):
         self.assertEqual(searched,query)
         self.assertNotIn("Console",searched)
         self.assertNotIn("Unboxed",searched)
+
+    def test_confirmed_game_cex_variant_loads_gbp_retail(self):
+        query="Silent Hill 2 PS2"
+        intent=server.infer_intent(query)
+        detail={"boxName":"Silent Hill 2 (PS2)","boxId":"SH2PS2",
+                "categoryName":"Playstation 2 Games","sellPrice":95,
+                "cashPriceCalculated":39,"exchangePriceCalculated":55}
+        with patch.object(server,"cex_detail", return_value=detail):
+            result=server.cex_search(query,intent,grade="Boxed",
+                                     identity=server.canonical_identity(query,{
+                                         "product":"Silent Hill 2","console":"PAL Playstation 2"
+                                     },intent),selected_product_id="SH2PS2")
+        self.assertTrue(result["ok"],result)
+        self.assertEqual(result["productId"],"SH2PS2")
+        self.assertEqual(result["retail"],95)
+        self.assertEqual(result["cash"],39)
+        self.assertEqual(result["voucher"],55)
+        self.assertTrue(result["selectedByUser"])
+
+    def test_buy_check_keeps_pricecharting_and_cex_status_when_uk_price_pending(self):
+        from urllib.parse import urlencode
+        from urllib.request import urlopen
+        from http.server import ThreadingHTTPServer
+        import threading
+        httpd=ThreadingHTTPServer(("127.0.0.1",0),server.H)
+        worker=threading.Thread(target=httpd.serve_forever,daemon=True)
+        worker.start()
+        self.addCleanup(httpd.server_close)
+        self.addCleanup(httpd.shutdown)
+        base="http://127.0.0.1:{}".format(httpd.server_port)
+        sample={
+            "ok":True,"id":123,"product":"Silent Hill 2",
+            "console":"PAL Playstation 2","genre":"Games","upc":None,
+            "salesVolume":200,
+            "prices":{"loose-price":45.2,"cib-price":71.5,"new-price":None}
+        }
+        variant={"ok":False,"status":"CeX variant needed","detail":"Confirm edition",
+                 "variants":[{"productId":"SH2PS2","product":"Silent Hill 2 (PS2)",
+                              "retail":95,"cash":39,"voucher":55}]}
+        with patch.object(server,"pc_detail",return_value=sample), \
+             patch.object(server,"cex_search",return_value=variant), \
+             patch.object(server,"ebay_browse_search",return_value={
+                 "ok":True,"environment":"sandbox","count":0,"items":[],
+                 "total":0,"medianAsking":None,"lowAsking":None,"highAsking":None}):
+            with urlopen(base+"/api/market-search?"+urlencode({
+                "q":"Silent Hill 2 PS2","id":"123","cexGrade":"Boxed"
+            }), timeout=5) as response:
+                data=json.loads(response.read())
+        self.assertIsNone(data["marketValue"])
+        self.assertEqual(data["lockedIdentity"]["type"],"software")
+        self.assertEqual(data["lockedIdentity"]["confirmedProduct"],"Silent Hill 2")
+        price=next(x for x in data["evidence"] if x["provider"]=="PriceCharting")
+        self.assertEqual(price["status"],"Live")
+        self.assertEqual(price["prices"]["cib-price"],71.5)
+        cex=next(x for x in data["evidence"] if x["provider"]=="CeX UK")
+        self.assertEqual(cex["status"],"CeX variant needed")
+        self.assertEqual(cex["variants"][0]["retail"],95)
+
+    def test_pricecharting_reference_prices_appear_outside_collapsed_explanation(self):
+        from pathlib import Path
+        script=(Path(__file__).resolve().parent.parent/"app.js").read_text()
+        self.assertIn("const priceReference=pcRecord?",script)
+        self.assertIn("moneyUSD(pcPrice[key])",script)
+        self.assertIn("${priceReference}${cexPrices}${cexPrompt}",script)
+        self.assertIn("Game identified. There is no confirmed UK selling value yet",script)
 
 
 if __name__=="__main__":
