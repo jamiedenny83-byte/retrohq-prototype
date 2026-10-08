@@ -15,6 +15,7 @@ _pc_last_call = 0.0
 CEX_SEARCH = "https://search.webuy.io/1/indexes/*/queries"
 _cex_lock = threading.Lock()
 _cex_last_call = 0.0
+_cex_health = {"checked": False, "ok": False, "status": "Not tested"}
 
 # eBay Browse API — UK active-listing evidence.
 # Secrets stay server-side in Codespaces/environment variables.
@@ -146,6 +147,15 @@ def canonical_identity(query, pc, intent):
             "label":intent.get("label"),"confirmedProduct":pc.get("product"),"confirmedConsole":pc.get("console"),
             "pricechartingProductId":pc.get("id"),"attributes":attrs}
 
+def cex_fallback_identity(query, intent):
+    """Use known hardware taxonomy without claiming PriceCharting confirmation."""
+    if intent.get("type") != "hardware" or not intent.get("platform"):
+        return None
+    return {"type": "hardware", "family": intent.get("family"),
+            "platform": intent.get("platform"), "label": intent.get("label"),
+            "attributes": identity_attributes(query), "source": "description"}
+
+
 def cex_grade_from_title(title):
     low=(title or "").lower()
     if re.search(r"\bdiscounted\b", low): return "Discounted"
@@ -268,8 +278,12 @@ def cex_search(query, intent=None, limit=40, grade=None, identity=None, selected
         try:
             with urlopen(req,timeout=12) as resp: data=json.loads(resp.read().decode("utf-8"))
         except (HTTPError,URLError,TimeoutError,json.JSONDecodeError) as e:
-            return {"ok":False,"status":"CeX unavailable","detail":str(e)}
+            # A configured connector is not proof that a live CeX request worked.
+            code = "HTTP {}".format(e.code) if isinstance(e, HTTPError) else type(e).__name__
+            _cex_health.update(checked=True, ok=False, status="Unavailable (" + code + ")")
+            return {"ok":False,"status":"CeX unavailable","detail":"CeX search request failed: " + code}
         finally: _cex_last_call=time.monotonic()
+    _cex_health.update(checked=True, ok=True, status="Responding")
     hits=((data.get("results") or [{}])[0].get("hits") or [])
     ranked=[]
     for h in hits:
@@ -285,7 +299,8 @@ def cex_search(query, intent=None, limit=40, grade=None, identity=None, selected
         return {"ok":False,"status":"CeX exact match unavailable","detail":"The selected CeX record could not be refreshed. Choose a CeX match again."}
     if not ranked or ranked[0][0]<12:
         return {"ok":False,"status":"No confident CeX match","detail":"CeX returned no candidate that passed RetroHQ's locked product identity checks."}
-    if intent.get("type")=="hardware" and not grade:
+    if intent.get("type")=="hardware":
+        # Several near-equal variants require confirmation even if grade is known.
         variants=[]; seen=set(); best=ranked[0][0]
         for sc,cand in ranked[:16]:
             if sc<best-5: continue
@@ -642,7 +657,8 @@ class H(SimpleHTTPRequestHandler):
             self.send_json({"pricecharting": bool(os.environ.get("PRICECHARTING_API_TOKEN")),
                             "ebay": bool(os.environ.get("EBAY_CLIENT_ID") and os.environ.get("EBAY_CLIENT_SECRET")),
                             "ebayEnvironment":os.environ.get("EBAY_ENV","production"),
-                            "cex": True}); return
+                            "cex": _cex_health["ok"] if _cex_health["checked"] else None,
+                            "cexStatus": _cex_health["status"]}); return
         super().do_GET()
 
 if __name__ == "__main__":
