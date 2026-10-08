@@ -4,6 +4,8 @@ on:
   push:
     branches: [retrohq-test-8.3]
   workflow_dispatch:
+  pull_request:
+    branches: [retrohq-test-8.2]
 
 permissions:
   contents: read
