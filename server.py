@@ -604,11 +604,13 @@ class H(SimpleHTTPRequestHandler):
             identity = canonical_identity(q,pc,lookup.get("intent") or infer_intent(q)) if pc.get("ok") else None
             ebay = ebay_browse_search(q, 12)
             if ebay.get("ok"):
-                evidence = [{"provider":"eBay UK","status":"Live","currency":"GBP","marketplace":"EBAY_GB",
+                ebay_is_sandbox = _ebay_base() == "https://api.sandbox.ebay.com"
+                evidence = [{"provider":"eBay UK","status":"Sandbox only" if ebay_is_sandbox else "Live","currency":"GBP","marketplace":"EBAY_GB",
                     "count":ebay.get("count"),"total":ebay.get("total"),"medianAsking":ebay.get("medianAsking"),
                     "lowAsking":ebay.get("lowAsking"),"highAsking":ebay.get("highAsking"),
                     "items":ebay.get("items",[])[:6],
-                    "detail":f"Live UK active listings: {ebay.get('count',0)} sampled. Median asking £{ebay.get('medianAsking'):.2f}." if ebay.get("medianAsking") is not None else "Live UK active listings found; no GBP asking-price summary available."}]
+                    "detail":("eBay Sandbox contains test listings, not real UK market prices." if ebay_is_sandbox else
+                              f"Live UK active listings: {ebay.get('count',0)} sampled. Median asking £{ebay.get('medianAsking'):.2f}." if ebay.get("medianAsking") is not None else "No live UK asking prices found in this search.")}]
             else:
                 evidence = [{"provider":"eBay UK","status":ebay.get("status","Unavailable"),"detail":ebay.get("detail","")}]
 
@@ -636,15 +638,39 @@ class H(SimpleHTTPRequestHandler):
                     method = "Live PriceCharting reference loaded. CeX pricing is awaiting a grade choice where multiple catalogue records exist; uncertain evidence is excluded from UK Market Value."
             else:
                 evidence.append({"provider":"PriceCharting","status":pc.get("status","Unavailable"),"detail":pc.get("detail","")})
-                cex = cex_search(q, lookup.get("intent") or infer_intent(q), grade=cex_grade, selected_product_id=cex_id)
+                intent = lookup.get("intent") or infer_intent(q)
+                fallback = cex_fallback_identity(q, intent)
+                cex = cex_search(q, intent, grade=cex_grade, identity=fallback, selected_product_id=cex_id)
                 if cex.get("ok"):
-                    evidence.append({"provider":"CeX UK","status":"Live","currency":"GBP","product":cex.get("product"),"productId":cex.get("productId"),"retail":cex.get("retail"),"cash":cex.get("cash"),"voucher":cex.get("voucher"),"stock":cex.get("stock"),"grade":cex.get("grade"),"detail":f"Matched: {cex.get('product')}. CeX sells £{cex.get('sell'):.2f}" if cex.get("sell") is not None else f"Matched: {cex.get('product')}"})
-                    market_value=None
-                    method="CeX UK evidence loaded, but no single provider price is promoted to RetroHQ UK Market Value."
+                    confirmed = bool(cex.get("selectedByUser"))
+                    # Strongly matched hardware can use CeX without PriceCharting.
+                    # Games and vague hardware queries require explicit confirmation.
+                    strong_hardware = bool(fallback and fallback["attributes"] and cex.get("score", 0) >= 40)
+                    usable = (confirmed or strong_hardware) and cex.get("retail") is not None
+                    evidence.append({"provider":"CeX UK","status":"Live","currency":"GBP",
+                        "product":cex.get("product"),"productId":cex.get("productId"),
+                        "retail":cex.get("retail"),"cash":cex.get("cash"),
+                        "voucher":cex.get("voucher"),"stock":cex.get("stock"),
+                        "grade":cex.get("grade"),"score":cex.get("score"),
+                        "selectedByUser":confirmed,
+                        "matchQuality":"Confirmed CeX catalogue record" if confirmed else
+                                       "Strong hardware match" if strong_hardware else "Needs confirmation",
+                        "detail":"CeX catalogue match found. " +
+                            ("UK retail benchmark ready." if usable else
+                             "Confirm the exact CeX record before using its retail price.")})
+                    market_value = cex.get("retail") if usable else None
+                    if usable:
+                        identity = dict(fallback or {"type":intent.get("type"),"platform":intent.get("platform"),
+                                                   "family":intent.get("family"),"attributes":identity_attributes(q)})
+                        identity.update(confirmedProduct=cex.get("product"),label=cex.get("product"),
+                                        cexProductId=cex.get("productId"),source="cex-confirmed" if confirmed else "cex-strong")
+                        method="CeX UK retail benchmark independently verified without PriceCharting. RetroHQ applies condition and completeness adjustments; CeX cash and voucher are separate evidence."
+                    else:
+                        method="CeX returned a possible match, but RetroHQ requires confirmation before using its retail price."
                 else:
-                    evidence.append({"provider":"CeX UK","status":cex.get("status","Unavailable"),"detail":cex.get("detail","")})
+                    evidence.append({"provider":"CeX UK","status":cex.get("status","Unavailable"),"detail":cex.get("detail",""),"variants":cex.get("variants",[])})
                     market_value=None
-                    method = "No market value invented. Neither provider returned evidence that passed RetroHQ checks."
+                    method="No confident UK benchmark. Check the CeX status and choose a matching catalogue variant if offered."
             self.send_json({"query":q,"barcode":barcode,"marketValue":market_value,"confidence":"uk-retail-benchmark" if market_value is not None else ("reference-only" if pc.get("ok") else "unavailable"),"evidence":evidence,"method":method,"lockedIdentity":identity,"pricechartingProductId":pc.get("id") if pc.get("ok") else None}); return
         if u.path == "/api/accessory-costs":
             p=parse_qs(u.query); platform=(p.get("platform") or [""])[0].strip(); colour=(p.get("colour") or [""])[0].strip()
