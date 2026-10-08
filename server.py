@@ -19,22 +19,42 @@ _cex_health = {"checked": False, "ok": False, "status": "Not tested"}
 
 # eBay Browse API — UK active-listing evidence.
 # Secrets stay server-side in Codespaces/environment variables.
-_ebay_token_cache = {"token": None, "expires": 0}
+_ebay_token_cache = {"token": None, "expires": 0, "client": None, "environment": None}
 
 def _ebay_base():
     return "https://api.sandbox.ebay.com" if os.environ.get("EBAY_ENV","production").lower()=="sandbox" else "https://api.ebay.com"
 
+def _ebay_market_credentials():
+    """Production Browse credentials are independent of Sandbox Seller OAuth."""
+    live_id = os.environ.get("EBAY_MARKET_CLIENT_ID", "").strip()
+    live_secret = os.environ.get("EBAY_MARKET_CLIENT_SECRET", "").strip()
+    if bool(live_id) != bool(live_secret):
+        return {"ok":False,"status":"eBay UK market credentials incomplete",
+                "detail":"Set both EBAY_MARKET_CLIENT_ID and EBAY_MARKET_CLIENT_SECRET for production UK market data."}
+    if live_id and live_secret:
+        return {"ok":True,"client":live_id,"secret":live_secret,
+                "base":"https://api.ebay.com","environment":"production"}
+    client = os.environ.get("EBAY_CLIENT_ID","").strip()
+    secret = os.environ.get("EBAY_CLIENT_SECRET","").strip()
+    if not client or not secret:
+        return {"ok":False,"status":"Credentials not loaded",
+                "detail":"Set eBay application credentials in the server environment."}
+    return {"ok":True,"client":client,"secret":secret,"base":_ebay_base(),
+            "environment":os.environ.get("EBAY_ENV","production").lower()}
+
 def ebay_access_token():
-    client_id=os.environ.get("EBAY_CLIENT_ID","").strip()
-    client_secret=os.environ.get("EBAY_CLIENT_SECRET","").strip()
-    if not client_id or not client_secret:
-        return {"ok":False,"status":"Credentials not loaded","detail":"Set EBAY_CLIENT_ID and EBAY_CLIENT_SECRET in the server environment."}
+    config = _ebay_market_credentials()
+    if not config.get("ok"): return config
     now=time.time()
-    if _ebay_token_cache.get("token") and now < _ebay_token_cache.get("expires",0)-60:
-        return {"ok":True,"token":_ebay_token_cache["token"]}
-    basic=base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
+    if (_ebay_token_cache.get("token") and
+        _ebay_token_cache.get("client")==config["client"] and
+        _ebay_token_cache.get("environment")==config["environment"] and
+        now < _ebay_token_cache.get("expires",0)-60):
+        return {"ok":True,"token":_ebay_token_cache["token"],"base":config["base"],
+                "environment":config["environment"]}
+    basic=base64.b64encode(f"{config['client']}:{config['secret']}".encode()).decode()
     body=urlencode({"grant_type":"client_credentials","scope":"https://api.ebay.com/oauth/api_scope"}).encode()
-    req=Request(_ebay_base()+"/identity/v1/oauth2/token",data=body,headers={
+    req=Request(config["base"]+"/identity/v1/oauth2/token",data=body,headers={
         "Authorization":"Basic "+basic,
         "Content-Type":"application/x-www-form-urlencoded"
     },method="POST")
@@ -43,13 +63,14 @@ def ebay_access_token():
             data=json.loads(r.read().decode())
         token=data.get("access_token")
         if not token: return {"ok":False,"status":"OAuth error","detail":"eBay did not return an application access token."}
-        _ebay_token_cache.update(token=token,expires=now+int(data.get("expires_in",7200)))
-        return {"ok":True,"token":token}
+        _ebay_token_cache.update(token=token,expires=now+int(data.get("expires_in",7200)),
+                                 client=config["client"],environment=config["environment"])
+        return {"ok":True,"token":token,"base":config["base"],"environment":config["environment"]}
     except HTTPError as e:
-        detail=e.read().decode(errors="ignore")[:500]
-        return {"ok":False,"status":f"eBay OAuth HTTP {e.code}","detail":detail}
+        # Avoid reflecting credential-bearing provider responses.
+        return {"ok":False,"status":f"eBay OAuth HTTP {e.code}","detail":"eBay refused the application token request."}
     except Exception as e:
-        return {"ok":False,"status":"eBay OAuth unavailable","detail":str(e)}
+        return {"ok":False,"status":"eBay OAuth unavailable","detail":type(e).__name__}
 
 def ebay_browse_search(query, limit=12):
     if not (query or "").strip():
@@ -61,7 +82,7 @@ def ebay_browse_search(query, limit=12):
         "limit":max(1,min(int(limit),20)),
         "filter":"itemLocationCountry:GB"
     })
-    req=Request(_ebay_base()+"/buy/browse/v1/item_summary/search?"+params,headers={
+    req=Request(auth["base"]+"/buy/browse/v1/item_summary/search?"+params,headers={
         "Authorization":"Bearer "+auth["token"],
         "X-EBAY-C-MARKETPLACE-ID":"EBAY_GB",
         "Accept":"application/json"
@@ -82,7 +103,7 @@ def ebay_browse_search(query, limit=12):
                 "itemWebUrl":x.get("itemWebUrl"),"seller":(x.get("seller") or {}).get("username")
             })
         return {
-            "ok":True,"status":"Live","marketplace":"EBAY_GB","count":len(items),
+            "ok":True,"status":"Live","marketplace":"EBAY_GB","environment":auth["environment"],"count":len(items),
             "total":data.get("total"),"items":items,
             "medianAsking":round(statistics.median(prices),2) if prices else None,
             "lowAsking":min(prices) if prices else None,"highAsking":max(prices) if prices else None
@@ -604,7 +625,7 @@ class H(SimpleHTTPRequestHandler):
             identity = canonical_identity(q,pc,lookup.get("intent") or infer_intent(q)) if pc.get("ok") else None
             ebay = ebay_browse_search(q, 12)
             if ebay.get("ok"):
-                ebay_is_sandbox = _ebay_base() == "https://api.sandbox.ebay.com"
+                ebay_is_sandbox = ebay.get("environment", os.environ.get("EBAY_ENV","production").lower()) == "sandbox"
                 evidence = [{"provider":"eBay UK","status":"Sandbox only" if ebay_is_sandbox else "Live","currency":"GBP","marketplace":"EBAY_GB",
                     "count":ebay.get("count"),"total":ebay.get("total"),"medianAsking":ebay.get("medianAsking"),
                     "lowAsking":ebay.get("lowAsking"),"highAsking":ebay.get("highAsking"),
@@ -681,8 +702,8 @@ class H(SimpleHTTPRequestHandler):
             self.send_json(ebay_browse_search(q,12)); return
         if u.path == "/api/provider-status":
             self.send_json({"pricecharting": bool(os.environ.get("PRICECHARTING_API_TOKEN")),
-                            "ebay": bool(os.environ.get("EBAY_CLIENT_ID") and os.environ.get("EBAY_CLIENT_SECRET")),
-                            "ebayEnvironment":os.environ.get("EBAY_ENV","production"),
+                            "ebay": bool(_ebay_market_credentials().get("ok")),
+                            "ebayEnvironment":_ebay_market_credentials().get("environment","unavailable"),
                             "cex": _cex_health["ok"] if _cex_health["checked"] else None,
                             "cexStatus": _cex_health["status"]}); return
         super().do_GET()
