@@ -1,3 +1,40 @@
+# Market data repair test (isolated branch)
+
+This section applies to branch `retrohq-market-repair-8.3`. The working Seller OAuth Test 8.3 branch remains unchanged.
+
+## Restart in Codespaces
+
+```bash
+git fetch origin
+git switch retrohq-market-repair-8.3
+git pull
+fuser -k 8006/tcp
+export EBAY_ENV=sandbox
+python3 server.py
+```
+
+Open the existing private port 8006 URL. The Sandbox Seller token remains in the private Codespaces home folder; this branch does not reset it.
+
+## Test CeX first
+
+1. Open **Buy Check**, search for **PS3 Slim 320GB** and keep **Good / no box**.
+2. Check the visible provider summary and expand **Why this value?**.
+3. If CeX finds multiple credible records, choose the exact model. Confirm only the correct grade/storage/revision.
+4. The UK retail benchmark should appear when the CeX match is strong or explicitly confirmed, even without PriceCharting.
+5. Open **Quick Capture**, type the same item, click **Find likely matches** and check that live CeX evidence appears without clearing your paid price or Area/Shelf.
+6. If CeX reports **Unavailable (HTTP 403)** or another error, record that exact status. Do not invent a value.
+
+## Separate credentials (do not paste secrets into chat)
+
+- **CeX UK**: no stored credential; uses an unofficial UK search endpoint. The provider status now reflects the latest attempted live request, not a hard-coded LIVE label. Endpoint availability must be verified from your Codespace.
+- **PriceCharting**: set `PRICECHARTING_API_TOKEN` in GitHub Codespaces secrets when available, then fully restart the Codespace. Until then PriceCharting is genuinely unavailable.
+- **eBay Seller Sandbox**: continues using existing `EBAY_CLIENT_ID`, `EBAY_CLIENT_SECRET`, `EBAY_RUNAME`, `RETROHQ_ADMIN_PIN`, and `EBAY_ENV=sandbox`.
+- **eBay UK production market Browse**: optionally add separate production application credentials as `EBAY_MARKET_CLIENT_ID` and `EBAY_MARKET_CLIENT_SECRET` in Codespaces secrets. These enable real UK active-listing asking-price evidence while keeping the Seller OAuth Sandbox-only. Without them, Sandbox Browse results are correctly labelled test data, never live UK market value. Active asking prices are not sold prices.
+
+Do not merge the draft repair PR into the stable Test 8.3 branch until CeX and the Quick Capture workflow are validated in Codespaces.
+
+---
+
 # RetroHQ Test 8.3 — eBay Seller OAuth (Sandbox)
 
 **Test 8.3 is a separate development branch. Test 8.2 is untouched and remains the rollback version.**
