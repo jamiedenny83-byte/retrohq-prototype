@@ -553,7 +553,7 @@ class H(SimpleHTTPRequestHandler):
         except (ValueError, UnicodeError):
             self.send_json({"ok": False, "status": "Invalid request."}, 400); return
         if not isinstance(payload, dict) or not ebay_seller.admin_pin_valid(payload.get("pin")):
-            self.send_json({"ok": False, "status": "Invalid administrator PIN or PIN not configured."}, 403); return
+            self.send_json({"ok": False, "status": ebay_seller.admin_pin_error()}, 403); return
         if u.path == "/api/ebay-seller/start":
             result = ebay_seller.start_authorisation()
         else:
