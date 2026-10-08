@@ -77,6 +77,16 @@ class MarketRepairTests(unittest.TestCase):
         self.assertIsNone(missing["voucher"])
         self.assertEqual(missing["cashSource"], "unavailable")
         self.assertIsNone(server._cex_prices({"sellPrice": 145, "buyPerc": 400})["cash"])
+        zeros = server._cex_prices({"sellPrice": 145, "cashPrice": 0, "exchangePrice": 0})
+        self.assertIsNone(zeros["cash"])
+        self.assertIsNone(zeros["voucher"])
+        with_rates = server._cex_prices({
+            "sellPrice": 145, "cashPrice": 0, "exchangePrice": 0,
+            "buyPerc": 57, "exchangePerc": 69,
+        })
+        self.assertEqual(with_rates["cash"], 82.65)
+        self.assertEqual(with_rates["voucher"], 100.05)
+        self.assertEqual(with_rates["cashSource"], "indicative-rate")
 
     def test_close_hardware_variants_require_selection(self):
         q = "PS3 Slim 320GB"
