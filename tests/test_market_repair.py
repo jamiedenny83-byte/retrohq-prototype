@@ -53,6 +53,31 @@ class MarketRepairTests(unittest.TestCase):
         self.assertGreaterEqual(result["score"], 40)
         self.assertEqual(server._cex_health["status"], "Responding")
 
+    def test_cex_algolia_calculated_trade_in_prices(self):
+        prices = server._cex_prices({
+            "sellPrice": 145, "cashPriceCalculated": 82,
+            "exchangePriceCalculated": 100, "cashPrice": 0, "exchangePrice": 0,
+        })
+        self.assertEqual(prices["retail"], 145)
+        self.assertEqual(prices["cash"], 82)
+        self.assertEqual(prices["voucher"], 100)
+        self.assertEqual(prices["cashSource"], "cex-calculated")
+        self.assertEqual(prices["voucherSource"], "cex-calculated")
+
+    def test_cex_search_percentages_have_clear_indicative_provenance(self):
+        prices = server._cex_prices({
+            "sellPrice": 145, "buyPerc": 57, "exchangePerc": 69,
+        })
+        self.assertEqual(prices["cash"], 82.65)
+        self.assertEqual(prices["voucher"], 100.05)
+        self.assertEqual(prices["cashSource"], "indicative-rate")
+        self.assertEqual(prices["voucherSource"], "indicative-rate")
+        missing = server._cex_prices({"sellPrice": 145})
+        self.assertIsNone(missing["cash"])
+        self.assertIsNone(missing["voucher"])
+        self.assertEqual(missing["cashSource"], "unavailable")
+        self.assertIsNone(server._cex_prices({"sellPrice": 145, "buyPerc": 400})["cash"])
+
     def test_close_hardware_variants_require_selection(self):
         q = "PS3 Slim 320GB"
         intent = server.infer_intent(q)
@@ -102,6 +127,24 @@ class MarketRepairTests(unittest.TestCase):
         self.assertEqual([x for x in result["evidence"] if x["provider"] == "eBay UK"][0]["status"], "Sandbox only")
         self.assertEqual([x for x in result["evidence"] if x["provider"] == "PriceCharting"][0]["status"], "PriceCharting token missing")
 
+    def test_cex_ambiguity_preserves_console_identity_and_trade_prices(self):
+        result = self._request("PS3 Slim 320GB", {
+            "ok": False, "status": "CeX variant needed",
+            "detail": "Choose the exact record.",
+            "variants": [{"product": "PS3 Slim 320GB Console Unboxed",
+                          "productId": "PS3TEST", "grade": "Unboxed", "retail": 110,
+                          "cash": 40, "voucher": 60,
+                          "cashSource": "cex-calculated",
+                          "voucherSource": "cex-calculated"}],
+        })
+        self.assertIsNone(result["marketValue"])
+        self.assertIsNone(result["lockedIdentity"])
+        self.assertEqual(result["provisionalIdentity"]["type"], "hardware")
+        self.assertEqual(result["provisionalIdentity"]["platform"], "PlayStation 3")
+        variant = next(x for x in result["evidence"] if x["provider"] == "CeX UK")["variants"][0]
+        self.assertEqual(variant["cash"], 40)
+        self.assertEqual(variant["voucher"], 60)
+
     def test_game_cex_price_needs_exact_confirmation(self):
         base = {"ok": True, "score": 40, "product": "Silent Hill 2 PS2",
                 "productId": "SH2PS2", "retail": 70, "cash": 30, "voucher": 42,
@@ -144,6 +187,10 @@ class MarketRepairTests(unittest.TestCase):
         self.assertIn("window.findCandidates=async()=>", js)
         self.assertIn("if(s.benchmark==null||!Number.isFinite(benchmark))", js)
         self.assertIn("window.quickCaptureSelectCeX=", js)
+        self.assertIn("if(!identity)return;", js)
+        self.assertIn("updateCompletenessUI(d.lockedIdentity||d.provisionalIdentity)", js)
+        self.assertIn("cexTradeText(cexAction.cash,cexAction.cashSource)", js)
+        self.assertIn("cexTradeText(x.cash,x.cashSource)", js)
 
 
 if __name__ == "__main__":
