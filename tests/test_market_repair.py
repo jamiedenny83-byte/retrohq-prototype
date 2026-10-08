@@ -100,7 +100,7 @@ class MarketRepairTests(unittest.TestCase):
         self.assertEqual(result["confidence"], "uk-retail-benchmark")
         self.assertEqual(result["lockedIdentity"]["source"], "cex-strong")
         self.assertEqual([x for x in result["evidence"] if x["provider"] == "eBay UK"][0]["status"], "Sandbox only")
-        self.assertEqual([x for x in result["evidence"] if x["provider"] == "PriceCharting"][0]["status"], "No confident match")
+        self.assertEqual([x for x in result["evidence"] if x["provider"] == "PriceCharting"][0]["status"], "PriceCharting token missing")
 
     def test_game_cex_price_needs_exact_confirmation(self):
         base = {"ok": True, "score": 40, "product": "Silent Hill 2 PS2",
