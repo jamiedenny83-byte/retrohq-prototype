@@ -128,6 +128,7 @@ window.refreshSellerStatus=async()=>{
    const data=await response.json();
    status.textContent=(data.connected?'✓ Seller authorised':'○ Seller not connected')+
      ' · '+(data.environment||'unknown')+
+     ' · Administrator PIN: '+(data.pinStatus||'Unknown')+
      (data.missing?.length?' · Setup needed: '+data.missing.join(', '):'');
  }catch(e){status.textContent='Seller connection status unavailable.';}
 };
