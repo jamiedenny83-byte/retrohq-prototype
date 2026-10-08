@@ -90,6 +90,21 @@ class SellerOAuthTests(unittest.TestCase):
             self.assertFalse(ebay_seller.start_authorisation()["ok"])
             self.assertFalse(ebay_seller._user_token()["ok"])
 
+    def test_pin_diagnostics_never_expose_secret(self):
+        with patch.dict(os.environ, {"RETROHQ_ADMIN_PIN": ""}):
+            self.assertEqual(ebay_seller.configuration()["pinStatus"], "Missing")
+            self.assertIn("not loaded", ebay_seller.admin_pin_error())
+        with patch.dict(os.environ, {"RETROHQ_ADMIN_PIN": "1234567"}):
+            self.assertIn("Too short", ebay_seller.configuration()["pinStatus"])
+            self.assertIn("too short", ebay_seller.admin_pin_error())
+        with patch.dict(os.environ, {"RETROHQ_ADMIN_PIN": " a-long-secret "}):
+            self.assertIn("whitespace", ebay_seller.configuration()["pinStatus"])
+            self.assertNotIn("a-long-secret", ebay_seller.admin_pin_error())
+        with patch.dict(os.environ, {"RETROHQ_ADMIN_PIN": "a-long-secret"}):
+            self.assertEqual(ebay_seller.configuration()["pinStatus"], "Ready")
+            self.assertIn("did not match", ebay_seller.admin_pin_error())
+            self.assertNotIn("a-long-secret", ebay_seller.admin_pin_error())
+
     def test_static_handler_blocks_hidden_files_and_traversal(self):
         handler = object.__new__(H)
         for path in ("/.git/config", "/.env", "/%2eenv", "/../private", "/%2e%2e/private"):
