@@ -533,6 +533,10 @@ def pricecharting_lookup(query, barcode, selected_id=None):
     intent=infer_intent(query)
     if intent.get("ambiguous") and intent.get("refinements"):
         return {"mode":"refinements","intent":intent,"refinements":intent["refinements"],"reason":"RetroHQ recognises the console family, but the generation is not specific enough. Choose the generation first."}
+    if not os.environ.get("PRICECHARTING_API_TOKEN", "").strip():
+        return {"mode":"error","intent":intent,"result":{
+            "ok":False,"status":"PriceCharting token missing",
+            "detail":"PRICECHARTING_API_TOKEN is not loaded. CeX UK can still provide an independent benchmark."}}
     ranked,errors=pc_candidates_for(query,intent)
     top=ranked[:8]
     if not top:
