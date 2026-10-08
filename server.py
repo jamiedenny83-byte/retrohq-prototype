@@ -237,9 +237,31 @@ def _cex_candidate_score(title, category, search_query, intent, identity, grade=
     return score
 
 def _cex_prices(h):
-    return {"retail":_num(_first(h,"sellPrice","price_sell","sale_price")),
-            "cash":_num(_first(h,"cashPrice","price_cash","trade_in_cash_price")),
-            "voucher":_num(_first(h,"exchangePrice","price_exchange","trade_in_voucher_price"))}
+    """Normalise CeX's legacy v3 and current search-index price fields.
+
+    Some Algolia hits expose *Calculated or per-item percentage fields instead
+    of the legacy cashPrice/exchangePrice. Derived numbers are explicitly marked
+    indicative so they cannot be mistaken for a confirmed store offer.
+    """
+    retail = _num(_first(h, "sellPrice", "price_sell", "sale_price"))
+    def trade_value(direct_keys, percent_keys):
+        direct = _num(_first(h, *direct_keys))
+        if direct is not None:
+            return direct, "cex-calculated" if direct_keys[0] in h and h[direct_keys[0]] is not None else "cex-listed"
+        percent = _num(_first(h, *percent_keys))
+        if retail is None or percent is None or not 0 <= percent <= 100:
+            return None, "unavailable"
+        # Rate-derived figures are indicative, not quotes for an exact payout.
+        return round(retail * percent / 100, 2), "indicative-rate"
+    cash, cash_source = trade_value(
+        ("cashPriceCalculated", "cashPrice", "price_cash", "trade_in_cash_price"),
+        ("buyPerc", "cashPercent", "cash_percent_of_sell"))
+    voucher, voucher_source = trade_value(
+        ("exchangePriceCalculated", "voucherPriceCalculated", "exchangePrice",
+         "price_exchange", "trade_in_voucher_price"),
+        ("exchangePerc", "exchangePercent", "exchange_percent_of_sell"))
+    return {"retail": retail, "cash": cash, "voucher": voucher,
+            "cashSource": cash_source, "voucherSource": voucher_source}
 
 def cex_detail(product_id):
     global _cex_last_call
