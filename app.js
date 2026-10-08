@@ -103,6 +103,9 @@ function settings(){return `<div class="grid two"><div class="card"><h3>Business
 <div id="sellerConnectionStatus" class="notice">Checking seller connection…</div>
 <div class="field"><label>eBay Auth Accepted URL (copy this into your Sandbox RuName settings)</label>
 <input class="input" id="sellerCallbackUrl" readonly value=""><small class="muted">Use the exact forwarded Codespaces HTTPS address shown here. Keep port 8006 Private.</small></div>
+<div class="field" style="margin-top:12px"><label>Private RetroHQ administrator PIN</label>
+<input id="sellerAdminPin" class="input" type="password" autocomplete="off" placeholder="Enter your Codespaces PIN before a seller action">
+<small class="muted">Never enter your eBay password here. This is the separate PIN you set in Codespaces secrets.</small></div>
 <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap">
 <button class="btn secondary" onclick="copySellerCallback()">Copy callback URL</button>
 <button class="btn primary" onclick="connectSeller()">Connect eBay Seller</button>
@@ -134,9 +137,11 @@ window.copySellerCallback=async()=>{
  catch(e){window.prompt('Copy this callback URL:',value);}
 };
 async function sellerAction(path){
- const pin=window.prompt('Enter your RetroHQ administrator PIN (stored in Codespaces secrets):');
- if(pin===null)return null;
- const result=$('#sellerActionResult');if(result)result.textContent='Contacting Sandbox…';
+ const pinInput=$('#sellerAdminPin'),pin=pinInput?.value||'';
+ const result=$('#sellerActionResult');
+ if(!pin){if(result)result.textContent='Enter your private administrator PIN above first.';return null;}
+ pinInput.value='';
+ if(result)result.textContent='Contacting Sandbox…';
  try{
    const response=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-RetroHQ-Action':'seller-oauth'},body:JSON.stringify({pin})});
    const data=await response.json();
