@@ -245,14 +245,19 @@ def _cex_prices(h):
     """
     retail = _num(_first(h, "sellPrice", "price_sell", "sale_price"))
     def trade_value(direct_keys, percent_keys):
-        direct = _num(_first(h, *direct_keys))
-        if direct is not None:
-            return direct, "cex-calculated" if direct_keys[0] in h and h[direct_keys[0]] is not None else "cex-listed"
+        # Some search-index rows contain zero placeholders in legacy fields.
+        # Prefer a positive calculated/listed trade-in price over those zeros.
+        for key in direct_keys:
+            direct = _num(h.get(key))
+            if direct is not None and direct > 0:
+                return direct, "cex-calculated" if "Calculated" in key else "cex-listed"
         percent = _num(_first(h, *percent_keys))
-        if retail is None or percent is None or not 0 <= percent <= 100:
-            return None, "unavailable"
-        # Rate-derived figures are indicative, not quotes for an exact payout.
-        return round(retail * percent / 100, 2), "indicative-rate"
+        if retail is not None and retail > 0 and percent is not None and 0 < percent <= 100:
+            # Rate-derived figures are indicative, not quotes for an exact payout.
+            return round(retail * percent / 100, 2), "indicative-rate"
+        # Zero is ambiguous in this unofficial index; report it as unavailable
+        # instead of claiming CeX offered nothing.
+        return None, "unavailable"
     cash, cash_source = trade_value(
         ("cashPriceCalculated", "cashPrice", "price_cash", "trade_in_cash_price"),
         ("buyPerc", "cashPercent", "cash_percent_of_sell"))
