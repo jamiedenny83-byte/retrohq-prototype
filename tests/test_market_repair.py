@@ -118,6 +118,27 @@ class MarketRepairTests(unittest.TestCase):
         self.assertIsNone(result["marketValue"])
         self.assertEqual(result["confidence"], "unavailable")
 
+    def test_production_ebay_browse_keys_are_separate_from_sandbox_seller(self):
+        with patch.dict(os.environ, {
+            "EBAY_CLIENT_ID": "seller-sandbox-id",
+            "EBAY_CLIENT_SECRET": "seller-sandbox-secret",
+            "EBAY_MARKET_CLIENT_ID": "market-production-id",
+            "EBAY_MARKET_CLIENT_SECRET": "market-production-secret",
+            "EBAY_ENV": "sandbox",
+        }):
+            server._ebay_token_cache.update(token=None, expires=0, client=None, environment=None)
+            with patch.object(server, "urlopen", return_value=FakeResponse({
+                "access_token": "production-browse-token", "expires_in": 7200,
+            })) as mocked:
+                auth = server.ebay_access_token()
+            self.assertTrue(auth["ok"])
+            self.assertEqual(auth["environment"], "production")
+            self.assertEqual(auth["base"], "https://api.ebay.com")
+            self.assertEqual(mocked.call_args.args[0].full_url,
+                             "https://api.ebay.com/identity/v1/oauth2/token")
+            self.assertNotIn("seller-sandbox-id", str(mocked.call_args))
+            self.assertNotIn("seller-sandbox-secret", str(mocked.call_args))
+
     def test_quick_capture_has_live_lookup_and_null_benchmark_guard(self):
         js = (Path(__file__).resolve().parent.parent / "app.js").read_text()
         self.assertIn("window.findCandidates=async()=>", js)
