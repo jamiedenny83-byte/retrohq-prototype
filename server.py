@@ -296,10 +296,11 @@ def cex_search(query, intent=None, limit=40, grade=None, identity=None, selected
       "Xbox Series S":"Xbox Series S Console","Xbox Series X":"Xbox Series X Console",
       "PlayStation 2":"PlayStation 2 Console","PlayStation 3":"PlayStation 3 Console","PlayStation 4":"PlayStation 4 Console",
       "PlayStation 5":"PlayStation 5 Console","Game Boy Advance":"Gameboy Advance Console","Game Boy Color":"Gameboy Color Console"}
-    search_query=aliases.get(platform,query); attrs=identity.get("attributes") or {}
+    search_query=aliases.get(platform,query) if intent.get("type")=="hardware" else query
+    attrs=identity.get("attributes") or {}
     for val in (attrs.get("revision"),attrs.get("storage"),attrs.get("colour")):
         if val and val.lower() not in search_query.lower(): search_query+=" "+val
-    if grade and grade.lower() not in search_query.lower(): search_query+=" "+grade
+    if intent.get("type")=="hardware" and grade and grade.lower() not in search_query.lower(): search_query+=" "+grade
 
     def exact_result(h, selected=False):
         title=str(_first(h,"boxName","name","title","productName") or "Unknown")
@@ -461,6 +462,43 @@ def normalize_words(s):
     import re
     return [w for w in re.sub(r"[^a-z0-9]+"," ",(s or "").lower()).split() if w]
 
+_HARDWARE_TERMS = {
+    "console", "system", "handheld", "slim", "super", "fat", "phat", "pro", "elite",
+    "arcade", "boxed", "unboxed", "discounted", "storage", "gb", "tb",
+    "red", "scarlet", "indigo", "glacier", "purple", "black", "white",
+    "silver", "blue", "pink", "green", "gold", "grey", "gray",
+    "controller", "controllers", "pad", "pads", "cable", "cables", "power",
+    "with", "without", "only", "bundle", "used", "new", "model", "edition",
+    "pal", "ntsc", "uk", "limited", "working", "unit", "original"
+}
+_GAME_TERMS = {"game", "disc", "disk", "cartridge", "cart", "manual", "cib", "complete"}
+
+def _platform_product_kind(query, phrases):
+    """Distinguish 'PS2 console' from 'Silent Hill 2 PS2'.
+
+    A platform mention identifies the format, not necessarily the item type.
+    Unknown extra title words are treated as a game, not as console hardware.
+    """
+    q = " ".join(normalize_words(query))
+    platform_phrases = sorted(phrases, key=len, reverse=True)
+    remainder = q
+    for phrase in platform_phrases:
+        if re.search(r"\b" + re.escape(phrase) + r"\b", remainder):
+            remainder = re.sub(r"\b" + re.escape(phrase) + r"\b", " ", remainder, count=1)
+            break
+    terms = normalize_words(remainder)
+    # Explicit references to games take precedence unless explicitly hardware.
+    if any(t in ("console", "system", "handheld") for t in terms):
+        return "hardware", ""
+    if any(t in _GAME_TERMS for t in terms):
+        return "software", " ".join(t for t in terms if t not in _GAME_TERMS)
+    non_hardware = [t for t in terms if t not in _HARDWARE_TERMS
+                    and not re.fullmatch(r"\d+(?:gb|tb)?|(?:cech|scph)[a-z0-9-]+", t)]
+    if non_hardware:
+        return "software", " ".join(t for t in terms if t not in ("pal","ntsc","uk"))
+    return "hardware", ""
+
+
 def infer_intent(query):
     q=" ".join(normalize_words(query))
     intent={"type":"unknown","family":None,"platform":None,"label":None,"ambiguous":False,"providerQueries":[],"allowedConsoleTerms":[],"excludeConsoleTerms":[]}
@@ -483,8 +521,18 @@ def infer_intent(query):
     ]
     # Prefer longest/specific phrases first.
     for phrases,family,label,typ,provider,allowed,excluded in taxonomy:
-        if any(ph in q for ph in phrases):
-            intent.update(type=typ,family=family,platform=label,label=label,providerQueries=provider,allowedConsoleTerms=allowed,excludeConsoleTerms=excluded)
+        if any(re.search(r"\b"+re.escape(ph)+r"\b",q) for ph in phrases):
+            kind, game_title = _platform_product_kind(q, phrases)
+            if kind == "software":
+                # Do not search PriceCharting for console systems when valuing a game.
+                # Keep the platform as a filter for game editions/regions.
+                intent.update(type="software",family=family,platform=label,label=label,
+                              providerQueries=[],allowedConsoleTerms=allowed,
+                              excludeConsoleTerms=excluded,gameTitle=game_title)
+            else:
+                intent.update(type="hardware",family=family,platform=label,label=label,
+                              providerQueries=provider,allowedConsoleTerms=allowed,
+                              excludeConsoleTerms=excluded)
             return intent
 
     if q in ("xbox","xbox console","xbox system"):
@@ -511,6 +559,25 @@ def is_hardware_candidate(c):
 def candidate_allowed(c,intent):
     pn=(c.get("product-name") or "").lower(); cn=(c.get("console-name") or "").lower(); hay=pn+" "+cn
     if intent.get("type")=="hardware" and not is_hardware_candidate(c): return False
+    if intent.get("type")=="software":
+        if is_hardware_candidate(c): return False
+        platform = intent.get("platform") or ""
+        aliases = {
+            "PlayStation 2": ("playstation 2", "ps2"),
+            "PlayStation 3": ("playstation 3", "ps3"),
+            "PlayStation 4": ("playstation 4", "ps4"),
+            "PlayStation 5": ("playstation 5", "ps5"),
+            "Game Boy Advance": ("gameboy advance", "game boy advance", "gba"),
+            "Game Boy Color": ("gameboy color", "game boy color", "gbc"),
+            "Original Xbox": ("xbox",),
+            "Xbox 360": ("xbox 360",),
+            "Xbox One": ("xbox one",),
+            "Xbox Series S": ("xbox series",),
+            "Xbox Series X": ("xbox series",),
+        }.get(platform, ())
+        if aliases and not any(a in cn for a in aliases): return False
+        game_words = set(normalize_words(intent.get("gameTitle")))
+        if game_words and not game_words.issubset(set(normalize_words(pn))): return False
     if any(x in hay for x in intent.get("excludeConsoleTerms",[])): return False
     allowed=intent.get("allowedConsoleTerms",[])
     if allowed and not any(x in hay for x in allowed): return False
@@ -520,6 +587,14 @@ def candidate_score(query, c, intent):
     q=set(normalize_words(query)); name=set(normalize_words(c.get("product-name"))); con=set(normalize_words(c.get("console-name")))
     score=2*len(q & name)+len(q & con)
     if intent.get("platform") and candidate_allowed(c,intent): score+=20
+    if intent.get("type")=="software":
+        wanted = intent.get("gameTitle","").strip().lower()
+        name = (c.get("product-name") or "").strip().lower()
+        if wanted and name==wanted: score+=25
+        elif wanted and name.startswith(wanted+" "): score+=15
+        # Prefer UK/PAL records when searching UK stock, but ask when editions compete.
+        region = (c.get("console-name") or "").lower()
+        if "pal" in region: score+=10
     # Useful variant attributes typed by the reseller should rise naturally.
     for attr in ("indigo","glacier","white","black","red","blue","silver","pink","purple","slim","super slim","elite","arcade","250gb","320gb","500gb","1tb"):
         if attr in " ".join(normalize_words(query)) and attr in (c.get("product-name") or "").lower(): score+=5
@@ -527,6 +602,8 @@ def candidate_score(query, c, intent):
 
 def pc_candidates_for(query,intent):
     searches=[]
+    if intent.get("type")=="software" and intent.get("gameTitle"):
+        searches.append(intent["gameTitle"])
     for x in intent.get("providerQueries",[]):
         if x not in searches: searches.append(x)
     if query not in searches: searches.append(query)
@@ -554,8 +631,16 @@ def pc_detail(product_id=None, barcode=None, query=None):
     return {"ok":True,"id":data.get("id"),"product":data.get("product-name"),"console":data.get("console-name"),"genre":data.get("genre"),"upc":data.get("upc"),"salesVolume":data.get("sales-volume"),"prices":fields}
 
 def pricecharting_lookup(query, barcode, selected_id=None):
-    if selected_id: return {"mode":"matched","result":pc_detail(product_id=selected_id)}
-    if barcode: return {"mode":"matched","result":pc_detail(barcode=barcode)}
+    if selected_id:
+        result=pc_detail(product_id=selected_id)
+        intent=infer_intent(query) if query else {}
+        if result.get("ok") and query and not candidate_allowed(
+                {"product-name":result.get("product"),"console-name":result.get("console")},intent):
+            return {"mode":"error","intent":intent,"result":{
+                "ok":False,"status":"Rejected mismatched edition",
+                "detail":"The chosen PriceCharting product does not match the item type, title or platform."}}
+        return {"mode":"matched","intent":intent,"result":result}
+    if barcode: return {"mode":"matched","intent":infer_intent(query) if query else {},"result":pc_detail(barcode=barcode)}
     if not query: return {"mode":"error","result":{"ok":False,"status":"No search supplied","detail":"Enter a description or barcode."}}
     intent=infer_intent(query)
     if intent.get("ambiguous") and intent.get("refinements"):
@@ -575,6 +660,8 @@ def pricecharting_lookup(query, barcode, selected_id=None):
     if len(top)>1:
         best_score=top[0].get("score",0); second_score=top[1].get("score",0)
         confident=best_score>=30 and (best_score-second_score)>=6
+        # Region, collector and re-release editions should not be silently conflated.
+        if intent.get("type")=="software": confident=False
         if not confident:
             return {"mode":"candidates","intent":intent,"candidates":top,"reason":"RetroHQ found more than one credible match. One confirmation is needed before pricing."}
     detail=pc_detail(product_id=top[0].get("id"))
