@@ -44,7 +44,7 @@ class MarketRepairTests(unittest.TestCase):
         identity = server.cex_fallback_identity(q, intent)
         self.assertEqual(identity["attributes"]["storage"], "320gb")
         hits = [self._cex_hit("PlayStation 3 Slim 320GB Console Unboxed")]
-        with patch.object(server, "urlopen", return_value=Fake({"results": [{"hits": hits}]})):
+        with patch.object(server, "urlopen", return_value=FakeResponse({"results": [{"hits": hits}]})):
             result = server.cex_search(q, intent, grade="Unboxed", identity=identity)
         self.assertTrue(result["ok"], result)
         self.assertEqual(result["retail"], 110)
@@ -58,7 +58,7 @@ class MarketRepairTests(unittest.TestCase):
         intent = server.infer_intent(q)
         hits = [self._cex_hit("PlayStation 3 Slim 320GB Console Unboxed"),
                 self._cex_hit("PlayStation 3 Slim 320GB Console Unboxed Black", "PS3SLIM320BLACK")]
-        with patch.object(server, "urlopen", return_value=Fake({"results": [{"hits": hits}]})):
+        with patch.object(server, "urlopen", return_value=FakeResponse({"results": [{"hits": hits}]})):
             result = server.cex_search(q, intent, grade="Unboxed",
                                        identity=server.cex_fallback_identity(q, intent))
         self.assertFalse(result["ok"])
