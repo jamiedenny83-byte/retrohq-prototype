@@ -646,7 +646,7 @@ class H(SimpleHTTPRequestHandler):
             if lookup.get("mode") == "refinements":
                 self.send_json({"query":q,"barcode":barcode,"marketValue":None,"confidence":"needs-refinement","needsRefinement":True,"intent":lookup.get("intent"),"refinements":lookup.get("refinements",[]),"reason":lookup.get("reason")}); return
             if lookup.get("mode") == "candidates":
-                self.send_json({"query":q,"barcode":barcode,"marketValue":None,"confidence":"needs-confirmation","needsConfirmation":True,"intent":lookup.get("intent"),"candidates":lookup.get("candidates",[]),"reason":lookup.get("reason")}); return
+                self.send_json({"query":q,"barcode":barcode,"marketValue":None,"confidence":"needs-confirmation","needsConfirmation":True,"intent":lookup.get("intent"),"provisionalIdentity":cex_fallback_identity(q, lookup.get("intent") or infer_intent(q)),"candidates":lookup.get("candidates",[]),"reason":lookup.get("reason")}); return
             pc = lookup.get("result", {})
             identity = canonical_identity(q,pc,lookup.get("intent") or infer_intent(q)) if pc.get("ok") else None
             ebay = ebay_browse_search(q, 12)
@@ -676,7 +676,7 @@ class H(SimpleHTTPRequestHandler):
                     if cex.get("retail") is not None: cparts.append(f"retail £{cex['retail']:.2f}")
                     if cex.get("cash") is not None: cparts.append(f"cash £{cex['cash']:.2f}")
                     if cex.get("voucher") is not None: cparts.append(f"voucher £{cex['voucher']:.2f}")
-                    evidence.append({"provider":"CeX UK","status":"Live","currency":"GBP","product":cex.get("product"),"productId":cex.get("productId"),"retail":cex.get("retail"),"cash":cex.get("cash"),"voucher":cex.get("voucher"),"stock":cex.get("stock"),"grade":cex.get("grade"),"matchQuality":cex.get("matchQuality"),"selectedByUser":cex.get("selectedByUser",False),"identity":identity,"detail":f"Matched: {cex.get('product')}. " + " · ".join(cparts)})
+                    evidence.append({"provider":"CeX UK","status":"Live","currency":"GBP","product":cex.get("product"),"productId":cex.get("productId"),"retail":cex.get("retail"),"cash":cex.get("cash"),"voucher":cex.get("voucher"),"cashSource":cex.get("cashSource"),"voucherSource":cex.get("voucherSource"),"stock":cex.get("stock"),"grade":cex.get("grade"),"matchQuality":cex.get("matchQuality"),"selectedByUser":cex.get("selectedByUser",False),"identity":identity,"detail":f"Matched: {cex.get('product')}. " + " · ".join(cparts)})
                     market_value = cex.get("retail")
                     method = "CeX UK retail is the identity-validated benchmark for the selected grade. RetroHQ then adjusts that benchmark for the actual item's known completeness. Cash and voucher trade-in are evidence only and are never used as market value."
                 else:
@@ -698,6 +698,7 @@ class H(SimpleHTTPRequestHandler):
                         "product":cex.get("product"),"productId":cex.get("productId"),
                         "retail":cex.get("retail"),"cash":cex.get("cash"),
                         "voucher":cex.get("voucher"),"stock":cex.get("stock"),
+                        "cashSource":cex.get("cashSource"),"voucherSource":cex.get("voucherSource"),
                         "grade":cex.get("grade"),"score":cex.get("score"),
                         "selectedByUser":confirmed,
                         "matchQuality":"Confirmed CeX catalogue record" if confirmed else
@@ -718,7 +719,7 @@ class H(SimpleHTTPRequestHandler):
                     evidence.append({"provider":"CeX UK","status":cex.get("status","Unavailable"),"detail":cex.get("detail",""),"variants":cex.get("variants",[])})
                     market_value=None
                     method="No confident UK benchmark. Check the CeX status and choose a matching catalogue variant if offered."
-            self.send_json({"query":q,"barcode":barcode,"marketValue":market_value,"confidence":"uk-retail-benchmark" if market_value is not None else ("reference-only" if pc.get("ok") else "unavailable"),"evidence":evidence,"method":method,"lockedIdentity":identity,"pricechartingProductId":pc.get("id") if pc.get("ok") else None}); return
+            self.send_json({"query":q,"barcode":barcode,"marketValue":market_value,"confidence":"uk-retail-benchmark" if market_value is not None else ("reference-only" if pc.get("ok") else "unavailable"),"evidence":evidence,"method":method,"lockedIdentity":identity,"provisionalIdentity":cex_fallback_identity(q, lookup.get("intent") or infer_intent(q)),"pricechartingProductId":pc.get("id") if pc.get("ok") else None}); return
         if u.path == "/api/accessory-costs":
             p=parse_qs(u.query); platform=(p.get("platform") or [""])[0].strip(); colour=(p.get("colour") or [""])[0].strip()
             controller=cex_accessory_retail(platform,colour) if platform else {"ok":False,"status":"No platform","detail":"No platform supplied."}
