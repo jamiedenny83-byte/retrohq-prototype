@@ -15,25 +15,46 @@ _pc_last_call = 0.0
 CEX_SEARCH = "https://search.webuy.io/1/indexes/*/queries"
 _cex_lock = threading.Lock()
 _cex_last_call = 0.0
+_cex_health = {"checked": False, "ok": False, "status": "Not tested"}
 
 # eBay Browse API — UK active-listing evidence.
 # Secrets stay server-side in Codespaces/environment variables.
-_ebay_token_cache = {"token": None, "expires": 0}
+_ebay_token_cache = {"token": None, "expires": 0, "client": None, "environment": None}
 
 def _ebay_base():
     return "https://api.sandbox.ebay.com" if os.environ.get("EBAY_ENV","production").lower()=="sandbox" else "https://api.ebay.com"
 
+def _ebay_market_credentials():
+    """Production Browse credentials are independent of Sandbox Seller OAuth."""
+    live_id = os.environ.get("EBAY_MARKET_CLIENT_ID", "").strip()
+    live_secret = os.environ.get("EBAY_MARKET_CLIENT_SECRET", "").strip()
+    if bool(live_id) != bool(live_secret):
+        return {"ok":False,"status":"eBay UK market credentials incomplete",
+                "detail":"Set both EBAY_MARKET_CLIENT_ID and EBAY_MARKET_CLIENT_SECRET for production UK market data."}
+    if live_id and live_secret:
+        return {"ok":True,"client":live_id,"secret":live_secret,
+                "base":"https://api.ebay.com","environment":"production"}
+    client = os.environ.get("EBAY_CLIENT_ID","").strip()
+    secret = os.environ.get("EBAY_CLIENT_SECRET","").strip()
+    if not client or not secret:
+        return {"ok":False,"status":"Credentials not loaded",
+                "detail":"Set eBay application credentials in the server environment."}
+    return {"ok":True,"client":client,"secret":secret,"base":_ebay_base(),
+            "environment":os.environ.get("EBAY_ENV","production").lower()}
+
 def ebay_access_token():
-    client_id=os.environ.get("EBAY_CLIENT_ID","").strip()
-    client_secret=os.environ.get("EBAY_CLIENT_SECRET","").strip()
-    if not client_id or not client_secret:
-        return {"ok":False,"status":"Credentials not loaded","detail":"Set EBAY_CLIENT_ID and EBAY_CLIENT_SECRET in the server environment."}
+    config = _ebay_market_credentials()
+    if not config.get("ok"): return config
     now=time.time()
-    if _ebay_token_cache.get("token") and now < _ebay_token_cache.get("expires",0)-60:
-        return {"ok":True,"token":_ebay_token_cache["token"]}
-    basic=base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
+    if (_ebay_token_cache.get("token") and
+        _ebay_token_cache.get("client")==config["client"] and
+        _ebay_token_cache.get("environment")==config["environment"] and
+        now < _ebay_token_cache.get("expires",0)-60):
+        return {"ok":True,"token":_ebay_token_cache["token"],"base":config["base"],
+                "environment":config["environment"]}
+    basic=base64.b64encode(f"{config['client']}:{config['secret']}".encode()).decode()
     body=urlencode({"grant_type":"client_credentials","scope":"https://api.ebay.com/oauth/api_scope"}).encode()
-    req=Request(_ebay_base()+"/identity/v1/oauth2/token",data=body,headers={
+    req=Request(config["base"]+"/identity/v1/oauth2/token",data=body,headers={
         "Authorization":"Basic "+basic,
         "Content-Type":"application/x-www-form-urlencoded"
     },method="POST")
@@ -42,13 +63,14 @@ def ebay_access_token():
             data=json.loads(r.read().decode())
         token=data.get("access_token")
         if not token: return {"ok":False,"status":"OAuth error","detail":"eBay did not return an application access token."}
-        _ebay_token_cache.update(token=token,expires=now+int(data.get("expires_in",7200)))
-        return {"ok":True,"token":token}
+        _ebay_token_cache.update(token=token,expires=now+int(data.get("expires_in",7200)),
+                                 client=config["client"],environment=config["environment"])
+        return {"ok":True,"token":token,"base":config["base"],"environment":config["environment"]}
     except HTTPError as e:
-        detail=e.read().decode(errors="ignore")[:500]
-        return {"ok":False,"status":f"eBay OAuth HTTP {e.code}","detail":detail}
+        # Avoid reflecting credential-bearing provider responses.
+        return {"ok":False,"status":f"eBay OAuth HTTP {e.code}","detail":"eBay refused the application token request."}
     except Exception as e:
-        return {"ok":False,"status":"eBay OAuth unavailable","detail":str(e)}
+        return {"ok":False,"status":"eBay OAuth unavailable","detail":type(e).__name__}
 
 def ebay_browse_search(query, limit=12):
     if not (query or "").strip():
@@ -60,7 +82,7 @@ def ebay_browse_search(query, limit=12):
         "limit":max(1,min(int(limit),20)),
         "filter":"itemLocationCountry:GB"
     })
-    req=Request(_ebay_base()+"/buy/browse/v1/item_summary/search?"+params,headers={
+    req=Request(auth["base"]+"/buy/browse/v1/item_summary/search?"+params,headers={
         "Authorization":"Bearer "+auth["token"],
         "X-EBAY-C-MARKETPLACE-ID":"EBAY_GB",
         "Accept":"application/json"
@@ -81,7 +103,7 @@ def ebay_browse_search(query, limit=12):
                 "itemWebUrl":x.get("itemWebUrl"),"seller":(x.get("seller") or {}).get("username")
             })
         return {
-            "ok":True,"status":"Live","marketplace":"EBAY_GB","count":len(items),
+            "ok":True,"status":"Live","marketplace":"EBAY_GB","environment":auth["environment"],"count":len(items),
             "total":data.get("total"),"items":items,
             "medianAsking":round(statistics.median(prices),2) if prices else None,
             "lowAsking":min(prices) if prices else None,"highAsking":max(prices) if prices else None
@@ -146,6 +168,15 @@ def canonical_identity(query, pc, intent):
             "label":intent.get("label"),"confirmedProduct":pc.get("product"),"confirmedConsole":pc.get("console"),
             "pricechartingProductId":pc.get("id"),"attributes":attrs}
 
+def cex_fallback_identity(query, intent):
+    """Use known hardware taxonomy without claiming PriceCharting confirmation."""
+    if intent.get("type") != "hardware" or not intent.get("platform"):
+        return None
+    return {"type": "hardware", "family": intent.get("family"),
+            "platform": intent.get("platform"), "label": intent.get("label"),
+            "attributes": identity_attributes(query), "source": "description"}
+
+
 def cex_grade_from_title(title):
     low=(title or "").lower()
     if re.search(r"\bdiscounted\b", low): return "Discounted"
@@ -206,9 +237,36 @@ def _cex_candidate_score(title, category, search_query, intent, identity, grade=
     return score
 
 def _cex_prices(h):
-    return {"retail":_num(_first(h,"sellPrice","price_sell","sale_price")),
-            "cash":_num(_first(h,"cashPrice","price_cash","trade_in_cash_price")),
-            "voucher":_num(_first(h,"exchangePrice","price_exchange","trade_in_voucher_price"))}
+    """Normalise CeX's legacy v3 and current search-index price fields.
+
+    Some Algolia hits expose *Calculated or per-item percentage fields instead
+    of the legacy cashPrice/exchangePrice. Derived numbers are explicitly marked
+    indicative so they cannot be mistaken for a confirmed store offer.
+    """
+    retail = _num(_first(h, "sellPrice", "price_sell", "sale_price"))
+    def trade_value(direct_keys, percent_keys):
+        # Some search-index rows contain zero placeholders in legacy fields.
+        # Prefer a positive calculated/listed trade-in price over those zeros.
+        for key in direct_keys:
+            direct = _num(h.get(key))
+            if direct is not None and direct > 0:
+                return direct, "cex-calculated" if "Calculated" in key else "cex-listed"
+        percent = _num(_first(h, *percent_keys))
+        if retail is not None and retail > 0 and percent is not None and 0 < percent <= 100:
+            # Rate-derived figures are indicative, not quotes for an exact payout.
+            return round(retail * percent / 100, 2), "indicative-rate"
+        # Zero is ambiguous in this unofficial index; report it as unavailable
+        # instead of claiming CeX offered nothing.
+        return None, "unavailable"
+    cash, cash_source = trade_value(
+        ("cashPriceCalculated", "cashPrice", "price_cash", "trade_in_cash_price"),
+        ("buyPerc", "cashPercent", "cash_percent_of_sell"))
+    voucher, voucher_source = trade_value(
+        ("exchangePriceCalculated", "voucherPriceCalculated", "exchangePrice",
+         "price_exchange", "trade_in_voucher_price"),
+        ("exchangePerc", "exchangePercent", "exchange_percent_of_sell"))
+    return {"retail": retail, "cash": cash, "voucher": voucher,
+            "cashSource": cash_source, "voucherSource": voucher_source}
 
 def cex_detail(product_id):
     global _cex_last_call
@@ -268,8 +326,12 @@ def cex_search(query, intent=None, limit=40, grade=None, identity=None, selected
         try:
             with urlopen(req,timeout=12) as resp: data=json.loads(resp.read().decode("utf-8"))
         except (HTTPError,URLError,TimeoutError,json.JSONDecodeError) as e:
-            return {"ok":False,"status":"CeX unavailable","detail":str(e)}
+            # A configured connector is not proof that a live CeX request worked.
+            code = "HTTP {}".format(e.code) if isinstance(e, HTTPError) else type(e).__name__
+            _cex_health.update(checked=True, ok=False, status="Unavailable (" + code + ")")
+            return {"ok":False,"status":"CeX unavailable","detail":"CeX search request failed: " + code}
         finally: _cex_last_call=time.monotonic()
+    _cex_health.update(checked=True, ok=True, status="Responding")
     hits=((data.get("results") or [{}])[0].get("hits") or [])
     ranked=[]
     for h in hits:
@@ -285,7 +347,8 @@ def cex_search(query, intent=None, limit=40, grade=None, identity=None, selected
         return {"ok":False,"status":"CeX exact match unavailable","detail":"The selected CeX record could not be refreshed. Choose a CeX match again."}
     if not ranked or ranked[0][0]<12:
         return {"ok":False,"status":"No confident CeX match","detail":"CeX returned no candidate that passed RetroHQ's locked product identity checks."}
-    if intent.get("type")=="hardware" and not grade:
+    if intent.get("type")=="hardware":
+        # Several near-equal variants require confirmation even if grade is known.
         variants=[]; seen=set(); best=ranked[0][0]
         for sc,cand in ranked[:16]:
             if sc<best-5: continue
@@ -497,6 +560,10 @@ def pricecharting_lookup(query, barcode, selected_id=None):
     intent=infer_intent(query)
     if intent.get("ambiguous") and intent.get("refinements"):
         return {"mode":"refinements","intent":intent,"refinements":intent["refinements"],"reason":"RetroHQ recognises the console family, but the generation is not specific enough. Choose the generation first."}
+    if not os.environ.get("PRICECHARTING_API_TOKEN", "").strip():
+        return {"mode":"error","intent":intent,"result":{
+            "ok":False,"status":"PriceCharting token missing",
+            "detail":"PRICECHARTING_API_TOKEN is not loaded. CeX UK can still provide an independent benchmark."}}
     ranked,errors=pc_candidates_for(query,intent)
     top=ranked[:8]
     if not top:
@@ -584,16 +651,18 @@ class H(SimpleHTTPRequestHandler):
             if lookup.get("mode") == "refinements":
                 self.send_json({"query":q,"barcode":barcode,"marketValue":None,"confidence":"needs-refinement","needsRefinement":True,"intent":lookup.get("intent"),"refinements":lookup.get("refinements",[]),"reason":lookup.get("reason")}); return
             if lookup.get("mode") == "candidates":
-                self.send_json({"query":q,"barcode":barcode,"marketValue":None,"confidence":"needs-confirmation","needsConfirmation":True,"intent":lookup.get("intent"),"candidates":lookup.get("candidates",[]),"reason":lookup.get("reason")}); return
+                self.send_json({"query":q,"barcode":barcode,"marketValue":None,"confidence":"needs-confirmation","needsConfirmation":True,"intent":lookup.get("intent"),"provisionalIdentity":cex_fallback_identity(q, lookup.get("intent") or infer_intent(q)),"candidates":lookup.get("candidates",[]),"reason":lookup.get("reason")}); return
             pc = lookup.get("result", {})
             identity = canonical_identity(q,pc,lookup.get("intent") or infer_intent(q)) if pc.get("ok") else None
             ebay = ebay_browse_search(q, 12)
             if ebay.get("ok"):
-                evidence = [{"provider":"eBay UK","status":"Live","currency":"GBP","marketplace":"EBAY_GB",
+                ebay_is_sandbox = ebay.get("environment", os.environ.get("EBAY_ENV","production").lower()) == "sandbox"
+                evidence = [{"provider":"eBay UK","status":"Sandbox only" if ebay_is_sandbox else "Live","currency":"GBP","marketplace":"EBAY_GB",
                     "count":ebay.get("count"),"total":ebay.get("total"),"medianAsking":ebay.get("medianAsking"),
                     "lowAsking":ebay.get("lowAsking"),"highAsking":ebay.get("highAsking"),
                     "items":ebay.get("items",[])[:6],
-                    "detail":f"Live UK active listings: {ebay.get('count',0)} sampled. Median asking £{ebay.get('medianAsking'):.2f}." if ebay.get("medianAsking") is not None else "Live UK active listings found; no GBP asking-price summary available."}]
+                    "detail":("eBay Sandbox contains test listings, not real UK market prices." if ebay_is_sandbox else
+                              f"Live UK active listings: {ebay.get('count',0)} sampled. Median asking £{ebay.get('medianAsking'):.2f}." if ebay.get("medianAsking") is not None else "No live UK asking prices found in this search.")}]
             else:
                 evidence = [{"provider":"eBay UK","status":ebay.get("status","Unavailable"),"detail":ebay.get("detail","")}]
 
@@ -612,7 +681,7 @@ class H(SimpleHTTPRequestHandler):
                     if cex.get("retail") is not None: cparts.append(f"retail £{cex['retail']:.2f}")
                     if cex.get("cash") is not None: cparts.append(f"cash £{cex['cash']:.2f}")
                     if cex.get("voucher") is not None: cparts.append(f"voucher £{cex['voucher']:.2f}")
-                    evidence.append({"provider":"CeX UK","status":"Live","currency":"GBP","product":cex.get("product"),"productId":cex.get("productId"),"retail":cex.get("retail"),"cash":cex.get("cash"),"voucher":cex.get("voucher"),"stock":cex.get("stock"),"grade":cex.get("grade"),"matchQuality":cex.get("matchQuality"),"selectedByUser":cex.get("selectedByUser",False),"identity":identity,"detail":f"Matched: {cex.get('product')}. " + " · ".join(cparts)})
+                    evidence.append({"provider":"CeX UK","status":"Live","currency":"GBP","product":cex.get("product"),"productId":cex.get("productId"),"retail":cex.get("retail"),"cash":cex.get("cash"),"voucher":cex.get("voucher"),"cashSource":cex.get("cashSource"),"voucherSource":cex.get("voucherSource"),"stock":cex.get("stock"),"grade":cex.get("grade"),"matchQuality":cex.get("matchQuality"),"selectedByUser":cex.get("selectedByUser",False),"identity":identity,"detail":f"Matched: {cex.get('product')}. " + " · ".join(cparts)})
                     market_value = cex.get("retail")
                     method = "CeX UK retail is the identity-validated benchmark for the selected grade. RetroHQ then adjusts that benchmark for the actual item's known completeness. Cash and voucher trade-in are evidence only and are never used as market value."
                 else:
@@ -621,16 +690,41 @@ class H(SimpleHTTPRequestHandler):
                     method = "Live PriceCharting reference loaded. CeX pricing is awaiting a grade choice where multiple catalogue records exist; uncertain evidence is excluded from UK Market Value."
             else:
                 evidence.append({"provider":"PriceCharting","status":pc.get("status","Unavailable"),"detail":pc.get("detail","")})
-                cex = cex_search(q, lookup.get("intent") or infer_intent(q), grade=cex_grade, selected_product_id=cex_id)
+                intent = lookup.get("intent") or infer_intent(q)
+                fallback = cex_fallback_identity(q, intent)
+                cex = cex_search(q, intent, grade=cex_grade, identity=fallback, selected_product_id=cex_id)
                 if cex.get("ok"):
-                    evidence.append({"provider":"CeX UK","status":"Live","currency":"GBP","product":cex.get("product"),"productId":cex.get("productId"),"retail":cex.get("retail"),"cash":cex.get("cash"),"voucher":cex.get("voucher"),"stock":cex.get("stock"),"grade":cex.get("grade"),"detail":f"Matched: {cex.get('product')}. CeX sells £{cex.get('sell'):.2f}" if cex.get("sell") is not None else f"Matched: {cex.get('product')}"})
-                    market_value=None
-                    method="CeX UK evidence loaded, but no single provider price is promoted to RetroHQ UK Market Value."
+                    confirmed = bool(cex.get("selectedByUser"))
+                    # Strongly matched hardware can use CeX without PriceCharting.
+                    # Games and vague hardware queries require explicit confirmation.
+                    strong_hardware = bool(fallback and fallback["attributes"] and cex.get("score", 0) >= 40)
+                    usable = (confirmed or strong_hardware) and cex.get("retail") is not None
+                    evidence.append({"provider":"CeX UK","status":"Live","currency":"GBP",
+                        "product":cex.get("product"),"productId":cex.get("productId"),
+                        "retail":cex.get("retail"),"cash":cex.get("cash"),
+                        "voucher":cex.get("voucher"),"stock":cex.get("stock"),
+                        "cashSource":cex.get("cashSource"),"voucherSource":cex.get("voucherSource"),
+                        "grade":cex.get("grade"),"score":cex.get("score"),
+                        "selectedByUser":confirmed,
+                        "matchQuality":"Confirmed CeX catalogue record" if confirmed else
+                                       "Strong hardware match" if strong_hardware else "Needs confirmation",
+                        "detail":"CeX catalogue match found. " +
+                            ("UK retail benchmark ready." if usable else
+                             "Confirm the exact CeX record before using its retail price.")})
+                    market_value = cex.get("retail") if usable else None
+                    if usable:
+                        identity = dict(fallback or {"type":intent.get("type"),"platform":intent.get("platform"),
+                                                   "family":intent.get("family"),"attributes":identity_attributes(q)})
+                        identity.update(confirmedProduct=cex.get("product"),label=cex.get("product"),
+                                        cexProductId=cex.get("productId"),source="cex-confirmed" if confirmed else "cex-strong")
+                        method="CeX UK retail benchmark independently verified without PriceCharting. RetroHQ applies condition and completeness adjustments; CeX cash and voucher are separate evidence."
+                    else:
+                        method="CeX returned a possible match, but RetroHQ requires confirmation before using its retail price."
                 else:
-                    evidence.append({"provider":"CeX UK","status":cex.get("status","Unavailable"),"detail":cex.get("detail","")})
+                    evidence.append({"provider":"CeX UK","status":cex.get("status","Unavailable"),"detail":cex.get("detail",""),"variants":cex.get("variants",[])})
                     market_value=None
-                    method = "No market value invented. Neither provider returned evidence that passed RetroHQ checks."
-            self.send_json({"query":q,"barcode":barcode,"marketValue":market_value,"confidence":"uk-retail-benchmark" if market_value is not None else ("reference-only" if pc.get("ok") else "unavailable"),"evidence":evidence,"method":method,"lockedIdentity":identity,"pricechartingProductId":pc.get("id") if pc.get("ok") else None}); return
+                    method="No confident UK benchmark. Check the CeX status and choose a matching catalogue variant if offered."
+            self.send_json({"query":q,"barcode":barcode,"marketValue":market_value,"confidence":"uk-retail-benchmark" if market_value is not None else ("reference-only" if pc.get("ok") else "unavailable"),"evidence":evidence,"method":method,"lockedIdentity":identity,"provisionalIdentity":cex_fallback_identity(q, lookup.get("intent") or infer_intent(q)),"pricechartingProductId":pc.get("id") if pc.get("ok") else None}); return
         if u.path == "/api/accessory-costs":
             p=parse_qs(u.query); platform=(p.get("platform") or [""])[0].strip(); colour=(p.get("colour") or [""])[0].strip()
             controller=cex_accessory_retail(platform,colour) if platform else {"ok":False,"status":"No platform","detail":"No platform supplied."}
@@ -640,9 +734,10 @@ class H(SimpleHTTPRequestHandler):
             self.send_json(ebay_browse_search(q,12)); return
         if u.path == "/api/provider-status":
             self.send_json({"pricecharting": bool(os.environ.get("PRICECHARTING_API_TOKEN")),
-                            "ebay": bool(os.environ.get("EBAY_CLIENT_ID") and os.environ.get("EBAY_CLIENT_SECRET")),
-                            "ebayEnvironment":os.environ.get("EBAY_ENV","production"),
-                            "cex": True}); return
+                            "ebay": bool(_ebay_market_credentials().get("ok")),
+                            "ebayEnvironment":_ebay_market_credentials().get("environment","unavailable"),
+                            "cex": _cex_health["ok"] if _cex_health["checked"] else None,
+                            "cexStatus": _cex_health["status"]}); return
         super().do_GET()
 
 if __name__ == "__main__":
