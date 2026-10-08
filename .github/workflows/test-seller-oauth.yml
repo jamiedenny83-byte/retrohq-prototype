@@ -1,0 +1,27 @@
+name: RetroHQ Test 8.3 Seller OAuth checks
+
+on:
+  push:
+    branches: [retrohq-test-8.3]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  seller-oauth:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Python syntax
+        run: python -m py_compile server.py ebay_seller.py tests/test_seller_oauth.py
+      - name: JavaScript syntax
+        run: node --check app.js
+      - name: Offline seller OAuth regression tests
+        run: python -m unittest discover -s tests -v
