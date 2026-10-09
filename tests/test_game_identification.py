@@ -136,6 +136,57 @@ class GameIdentificationTests(unittest.TestCase):
         self.assertEqual(selected["retail"],99)
         self.assertTrue(selected["selectedByUser"])
 
+    def test_cex_retries_ps2_qualified_query_when_remake_crowds_out_classic(self):
+        # CeX's first page can be dominated by the PS5 remake. A second
+        # targeted search should find the actual PS2 game without ever
+        # substituting PS5 retail or cross-platform trade-in figures.
+        from urllib.parse import parse_qs
+        query="Silent Hill 2 PS2"
+        intent=server.infer_intent(query)
+        identity=server.canonical_identity(query,{
+            "product":"Silent Hill 2","console":"PAL Playstation 2",
+        },intent)
+        searched=[]
+        def respond(request,timeout=12):
+            payload=json.loads(request.data)
+            text=parse_qs(payload["requests"][0]["params"])["query"][0]
+            searched.append(text)
+            if text=="silent hill 2":
+                hits=[{"boxName":"Silent Hill 2","boxId":"SH2-PS5",
+                       "categoryName":"playstation5-software","sellPrice":42}]
+            elif text=="silent hill 2 PS2":
+                hits=[{"boxName":"Silent Hill 2 (PS2)","boxId":"SH2-PS2",
+                       "categoryName":"playstation2-software","sellPrice":105,
+                       "cashPriceCalculated":35,"exchangePriceCalculated":48}]
+            else:
+                hits=[]
+            return FakeResponse({"results":[{"hits":hits}]})
+        with patch.object(server,"urlopen",side_effect=respond):
+            result=server.cex_search(query,intent,grade="Boxed",identity=identity)
+        self.assertEqual(searched,["silent hill 2","silent hill 2 PS2"])
+        self.assertFalse(result["ok"],result)
+        self.assertEqual(result["status"],"CeX variant needed")
+        self.assertEqual(len(result["variants"]),1)
+        self.assertEqual(result["variants"][0]["productId"],"SH2-PS2")
+        self.assertEqual(result["variants"][0]["retail"],105)
+        self.assertEqual(result["variants"][0]["cash"],35)
+
+    def test_cex_does_not_invent_ps2_value_when_only_other_platforms_exist(self):
+        query="Silent Hill 2 PS2"
+        intent=server.infer_intent(query)
+        data={"results":[{"hits":[
+            {"boxName":"Silent Hill 2","boxId":"SH2-PS5",
+             "categoryName":"playstation5-software","sellPrice":42},
+            {"boxName":"Silent Hill 3","boxId":"SH3-PS2",
+             "categoryName":"playstation2-software","sellPrice":80},
+        ]}]}
+        with patch.object(server,"urlopen",return_value=FakeResponse(data)) as req:
+            result=server.cex_search(query,intent,grade="Unboxed")
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["status"],"No confident CeX match")
+        self.assertIn("across 3 search(es)",result["detail"])
+        self.assertEqual(req.call_count,3)
+
     def test_cex_search_uses_game_title_not_console_alias_or_unboxed_grade(self):
         hit={"boxName":"Silent Hill 2 (PS2)","boxId":"SH2PS2",
              "categoryName":"Playstation 2 Games","sellPrice":70}
