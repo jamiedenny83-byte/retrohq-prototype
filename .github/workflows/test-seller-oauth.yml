@@ -2,7 +2,7 @@ name: RetroHQ Seller and Market checks
 
 on:
   push:
-    branches: [retrohq-test-8.3, retrohq-market-repair-8.3]
+    branches: [retrohq-test-8.3, retrohq-market-repair-8.3, retrohq-test-8.3-game-id-fix]
   workflow_dispatch:
   pull_request:
     branches: [retrohq-test-8.2, retrohq-test-8.3]
@@ -22,7 +22,7 @@ jobs:
         with:
           node-version: "22"
       - name: Python syntax
-        run: python -m py_compile server.py ebay_seller.py tests/test_seller_oauth.py tests/test_market_repair.py
+        run: python -m py_compile server.py ebay_seller.py tests/test_seller_oauth.py tests/test_market_repair.py tests/test_game_identification.py
       - name: JavaScript syntax
         run: node --check app.js
       - name: Offline seller and CeX market regression tests
