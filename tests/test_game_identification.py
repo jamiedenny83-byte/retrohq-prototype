@@ -93,6 +93,49 @@ class GameIdentificationTests(unittest.TestCase):
         self.assertEqual(result["mode"], "matched")
         self.assertEqual(result["intent"]["type"], "software")
 
+    def test_cex_catalogue_platform_labels_preserve_exact_platform(self):
+        # CeX sometimes reports category slugs without a space before the generation.
+        self.assertEqual(server._cex_platforms("Silent Hill 2 playstation2-software"),
+                         {"PlayStation 2"})
+        self.assertEqual(server._cex_platforms("Silent Hill 2 PS2 Games"),
+                         {"PlayStation 2"})
+        self.assertEqual(server._cex_platforms("Silent Hill 2"),set())
+        self.assertEqual(server._cex_platforms("playstation3-software"),
+                         {"PlayStation 3"})
+
+    def test_cex_ps2_game_search_matches_catalogue_slug_but_rejects_ps3(self):
+        query="Silent Hill 2 PS2"
+        intent=server.infer_intent(query)
+        identity=server.canonical_identity(query,{
+            "product":"Silent Hill 2","console":"PAL Playstation 2"
+        },intent)
+        hits=[
+            {"boxName":"Silent Hill 2","categoryName":"playstation2-software",
+             "boxId":"SH2_PS2","sellPrice":99,"cashPriceCalculated":35,
+             "exchangePriceCalculated":50},
+            {"boxName":"Silent Hill 2","categoryName":"playstation3-software",
+             "boxId":"SH2_PS3","sellPrice":55},
+            {"boxName":"Silent Hill 3","categoryName":"playstation2-software",
+             "boxId":"SH3_PS2","sellPrice":77},
+        ]
+        with patch.object(server,"urlopen",return_value=FakeResponse({
+            "results":[{"hits":hits}]
+        })):
+            match=server.cex_search(query,intent,grade="Unboxed",identity=identity)
+        self.assertFalse(match["ok"],match)
+        self.assertEqual(match["status"],"CeX variant needed")
+        self.assertEqual(len(match["variants"]),1)
+        self.assertEqual(match["variants"][0]["productId"],"SH2_PS2")
+        self.assertEqual(match["variants"][0]["cash"],35)
+        self.assertEqual(match["variants"][0]["voucher"],50)
+
+        with patch.object(server,"cex_detail",return_value=hits[0]):
+            selected=server.cex_search(query,intent,grade="Unboxed",
+                                       identity=identity,selected_product_id="SH2_PS2")
+        self.assertTrue(selected["ok"],selected)
+        self.assertEqual(selected["retail"],99)
+        self.assertTrue(selected["selectedByUser"])
+
     def test_cex_search_uses_game_title_not_console_alias_or_unboxed_grade(self):
         hit={"boxName":"Silent Hill 2 (PS2)","boxId":"SH2PS2",
              "categoryName":"Playstation 2 Games","sellPrice":70}
