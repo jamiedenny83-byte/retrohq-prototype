@@ -218,21 +218,21 @@ def _cex_platforms(text):
     Do not infer a console merely because a game title contains the number 2.
     """
     raw=re.sub(r"[^a-z0-9]+"," ",str(text or "").lower())
-    words=re.sub(r"(?<=[a-z])(?=\\d)|(?<=\\d)(?=[a-z])"," ",raw)
-    words=re.sub(r"\\bplay\\s+station\\b","playstation",words)
-    words=re.sub(r"\\bgame\\s+boy\\b","gameboy",words)
+    words=re.sub(r"(?<=[a-z])(?=\d)|(?<=\d)(?=[a-z])"," ",raw)
+    words=re.sub(r"\bplay\s+station\b","playstation",words)
+    words=re.sub(r"\bgame\s+boy\b","gameboy",words)
     found=set()
     for num in ("2","3","4","5"):
-        if re.search(r"\\b(?:ps|playstation)\\s*"+num+r"\\b",words):
+        if re.search(r"\b(?:ps|playstation)\s*"+num+r"\b",words):
             found.add("PlayStation "+num)
     for num in ("360",):
-        if re.search(r"\\bxbox\\s*"+num+r"\\b",words):
+        if re.search(r"\bxbox\s*"+num+r"\b",words):
             found.add("Xbox "+num)
-    if re.search(r"\\bxbox\\s*one\\b",words): found.add("Xbox One")
-    if re.search(r"\\bxbox\\s*series\\s*s\\b",words): found.add("Xbox Series S")
-    if re.search(r"\\bxbox\\s*series\\s*x\\b",words): found.add("Xbox Series X")
-    if re.search(r"\\bgameboy\\s*advance\\b|\\bgba\\b",words): found.add("Game Boy Advance")
-    if re.search(r"\\bgameboy\\s*color\\b|\\bgameboy\\s*colour\\b|\\bgbc\\b",words): found.add("Game Boy Color")
+    if re.search(r"\bxbox\s*one\b",words): found.add("Xbox One")
+    if re.search(r"\bxbox\s*series\s*s\b",words): found.add("Xbox Series S")
+    if re.search(r"\bxbox\s*series\s*x\b",words): found.add("Xbox Series X")
+    if re.search(r"\bgameboy\s*advance\b|\bgba\b",words): found.add("Game Boy Advance")
+    if re.search(r"\bgameboy\s*color\b|\bgameboy\s*colour\b|\bgbc\b",words): found.add("Game Boy Color")
     return found
 
 
