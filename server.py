@@ -369,28 +369,58 @@ def cex_search(query, intent=None, limit=40, grade=None, identity=None, selected
         h=cex_detail(selected_product_id)
         if h: return exact_result(h,True)
 
-    params=urlencode({"query":search_query,"hitsPerPage":limit})
-    payload=json.dumps({"requests":[{"indexName":"prod_cex_uk","params":params}]}).encode("utf-8")
-    with _cex_lock:
-        wait=1.05-(time.monotonic()-_cex_last_call)
-        if wait>0: time.sleep(wait)
-        req=Request(CEX_SEARCH,data=payload,headers={"Content-Type":"application/json","User-Agent":"RetroHQ-Internal-PoC/0.8.1 (+internal testing)"},method="POST")
-        try:
-            with urlopen(req,timeout=12) as resp: data=json.loads(resp.read().decode("utf-8"))
-        except (HTTPError,URLError,TimeoutError,json.JSONDecodeError) as e:
-            # A configured connector is not proof that a live CeX request worked.
-            code = "HTTP {}".format(e.code) if isinstance(e, HTTPError) else type(e).__name__
-            _cex_health.update(checked=True, ok=False, status="Unavailable (" + code + ")")
-            return {"ok":False,"status":"CeX unavailable","detail":"CeX search request failed: " + code}
-        finally: _cex_last_call=time.monotonic()
-    _cex_health.update(checked=True, ok=True, status="Responding")
-    hits=((data.get("results") or [{}])[0].get("hits") or [])
-    ranked=[]
-    for h in hits:
-        title=str(_first(h,"boxName","name","title","productName") or "")
-        category=_cex_category_text(h)
-        sc=_cex_candidate_score(title,category,search_query,intent,identity,grade)
-        if sc is not None: ranked.append((sc,h))
+    # CeX can rank the modern remake and unrelated platform listings above
+    # the original PS2 game. A title-only search can therefore miss its PS2
+    # entry entirely. Retry with a platform qualifier, but NEVER relax the
+    # required game title/platform checks to manufacture a match.
+    queries=[search_query]
+    if intent.get("type")=="software" and platform:
+        qualifier={
+            "PlayStation 2":"PS2","PlayStation 3":"PS3","PlayStation 4":"PS4",
+            "PlayStation 5":"PS5","Game Boy Advance":"GBA","Game Boy Color":"GBC",
+            "Xbox 360":"Xbox 360","Xbox One":"Xbox One","Original Xbox":"Xbox"
+        }.get(platform)
+        if qualifier:
+            queries.extend((search_query+" "+qualifier,qualifier+" "+search_query))
+    queries=list(dict.fromkeys(queries))[:3]
+    ranked=[]; seen=set(); scanned=0; attempted=[]
+    for sq in queries:
+        params=urlencode({"query":sq,"hitsPerPage":limit})
+        payload=json.dumps({"requests":[{"indexName":"prod_cex_uk","params":params}]}).encode("utf-8")
+        with _cex_lock:
+            wait=1.05-(time.monotonic()-_cex_last_call)
+            if wait>0: time.sleep(wait)
+            req=Request(CEX_SEARCH,data=payload,headers={
+                "Content-Type":"application/json",
+                "User-Agent":"RetroHQ-Internal-PoC/0.8.1 (+internal testing)"},method="POST")
+            try:
+                with urlopen(req,timeout=12) as resp:
+                    data=json.loads(resp.read().decode("utf-8"))
+            except (HTTPError,URLError,TimeoutError,json.JSONDecodeError) as e:
+                code="HTTP {}".format(e.code) if isinstance(e,HTTPError) else type(e).__name__
+                _cex_health.update(checked=True,ok=False,status="Unavailable ("+code+")")
+                if not ranked:
+                    return {"ok":False,"status":"CeX unavailable","detail":"CeX search request failed: "+code}
+                break  # already have a verified match from a previous search
+            finally:
+                _cex_last_call=time.monotonic()
+        _cex_health.update(checked=True,ok=True,status="Responding")
+        attempted.append(sq)
+        hits=((data.get("results") or [{}])[0].get("hits") or [])
+        scanned+=len(hits)
+        for h in hits:
+            title=str(_first(h,"boxName","name","title","productName") or "")
+            category=_cex_category_text(h)
+            sc=_cex_candidate_score(title,category,sq,intent,identity,grade)
+            if sc is None: continue
+            pid=str(_first(h,"boxId","box_id","objectID","id") or "")
+            key=pid or (title.lower(),category.lower())
+            if key in seen: continue
+            seen.add(key)
+            ranked.append((sc,h))
+        # Once a usable exact-platform candidate is found there is no reason
+        # to call the unofficial CeX search service again.
+        if ranked: break
     ranked.sort(key=lambda x:x[0],reverse=True)
     if selected_product_id:
         for _,cand in ranked:
@@ -398,7 +428,9 @@ def cex_search(query, intent=None, limit=40, grade=None, identity=None, selected
             if pid==str(selected_product_id): return exact_result(cand,True)
         return {"ok":False,"status":"CeX exact match unavailable","detail":"The selected CeX record could not be refreshed. Choose a CeX match again."}
     if not ranked or ranked[0][0]<12:
-        return {"ok":False,"status":"No confident CeX match","detail":"CeX returned no candidate that passed RetroHQ's locked product identity checks."}
+        return {"ok":False,"status":"No confident CeX match",
+                "detail":"CeX checked {} catalogue result(s) across {} search(es), but none passed the game title and platform checks. No UK price was inferred.".format(scanned,len(attempted)) if intent.get("type")=="software" else
+                         "CeX returned no candidate that passed RetroHQ's locked product identity checks."}
     if intent.get("type") in ("hardware","software"):
         # Games may have standard, Platinum, Director's Cut or regional variants.
         # Explicitly confirm a game edition before using CeX as a UK benchmark.
