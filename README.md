@@ -1,11 +1,11 @@
-# RetroHQ OS — Live Workflow Test 7.4
+# RetroHQ OS — Internal Prototype
 
-Internal Retrograde proof-of-concept build.
+**Current development test:** [Test 8.3 — Sandbox Seller OAuth](START_HERE.md)
 
-**Current test branch:** `retrohq-test-7.4`
+RetroHQ is an internal proof of concept for UK collectible resellers. Test 8.3 adds an eBay Sandbox Seller OAuth connection and read-only seller API verification, building on Test 8.2's daily operations and UK market-data workflows.
 
-Start with **START_HERE.md** for the exact Codespaces commands.
+**Stable rollback:** `retrohq-test-8.2` (untouched). The Test 8.3 changes are isolated in `retrohq-test-8.3` and a draft pull request; do not merge until the Codespaces seller connection has been tested.
 
-Test 7.4 preserves the working Test 7.3 identification and identity-lock flow while correcting CeX catalogue selection, provider evidence presentation and Buy Check decision maths.
+For the exact setup, required Codespaces secrets and testing steps, **start with [START_HERE.md](START_HERE.md)**.
 
-See `docs/TEST_7_4_NOTES.md` for the regression checklist and `docs/VERSIONING.md` for the repository workflow.
+Do not put eBay credentials, tokens or customer information into this public repository.
