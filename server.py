@@ -211,11 +211,49 @@ def cex_identity_quality(title, identity):
         else: conflicts.append("colour")
     return matches,conflicts
 
+def _cex_platforms(text):
+    """Recognise human-readable and CeX catalogue-slug platform labels.
+
+    Examples: 'PS2', 'Playstation 2', 'playstation2-software'.
+    Do not infer a console merely because a game title contains the number 2.
+    """
+    raw=re.sub(r"[^a-z0-9]+"," ",str(text or "").lower())
+    words=re.sub(r"(?<=[a-z])(?=\\d)|(?<=\\d)(?=[a-z])"," ",raw)
+    words=re.sub(r"\\bplay\\s+station\\b","playstation",words)
+    words=re.sub(r"\\bgame\\s+boy\\b","gameboy",words)
+    found=set()
+    for num in ("2","3","4","5"):
+        if re.search(r"\\b(?:ps|playstation)\\s*"+num+r"\\b",words):
+            found.add("PlayStation "+num)
+    for num in ("360",):
+        if re.search(r"\\bxbox\\s*"+num+r"\\b",words):
+            found.add("Xbox "+num)
+    if re.search(r"\\bxbox\\s*one\\b",words): found.add("Xbox One")
+    if re.search(r"\\bxbox\\s*series\\s*s\\b",words): found.add("Xbox Series S")
+    if re.search(r"\\bxbox\\s*series\\s*x\\b",words): found.add("Xbox Series X")
+    if re.search(r"\\bgameboy\\s*advance\\b|\\bgba\\b",words): found.add("Game Boy Advance")
+    if re.search(r"\\bgameboy\\s*color\\b|\\bgameboy\\s*colour\\b|\\bgbc\\b",words): found.add("Game Boy Color")
+    return found
+
+
+def _cex_category_text(hit):
+    """Use category identifiers as well as display labels for safe platform matching."""
+    keys=("categoryName","categoryFriendlyName","category","categorySlug",
+          "categoryId","categoryID","superCatName")
+    return " ".join(str(hit[key]) for key in keys if hit.get(key) not in (None,""))
+
+
 def _cex_candidate_score(title, category, search_query, intent, identity, grade=None):
     hay=(title+" "+category).lower(); qwords=set(normalize_words(search_query)); words=set(normalize_words(title+" "+category))
     score=2*len(qwords & words)
     if intent.get("type")=="software":
-        # Match the game TITLE and console platform, never just shared words like PS2.
+        # CeX frequently labels PS2 titles 'playstation2-software'. Such
+        # catalogue categories prove the platform even if the title lacks PS2.
+        expected=identity.get("platform") or intent.get("platform")
+        observed=_cex_platforms(title+" "+category)
+        if expected and (expected not in observed or observed!={expected}):
+            return None
+        # Match the game TITLE, never merely the shared platform and number.
         game_words=set(normalize_words(intent.get("gameTitle") or search_query))
         name_words=set(normalize_words(title))
         if not game_words or not game_words.issubset(name_words): return None
@@ -227,9 +265,11 @@ def _cex_candidate_score(title, category, search_query, intent, identity, grade=
         if any(x in hay for x in ("software"," games","accessor","case","controller","cable","charger","adapter","headset")): return None
         if not any(x in hay for x in ("console","consoles","system","handheld","gameboy","game boy")): return None
         score+=15
-    if any(x in hay for x in intent.get("excludeConsoleTerms",[])): return None
+    if intent.get("type")!="software" and any(x in hay for x in intent.get("excludeConsoleTerms",[])): return None
     platform=identity.get("platform") or intent.get("platform") or ""
-    if platform=="Original Xbox":
+    if intent.get("type")=="software":
+        score+=12
+    elif platform=="Original Xbox":
         if "xbox" not in hay or any(x in hay for x in ("xbox 360","xbox one","xbox series")): return None
         score+=20
     elif platform:
@@ -316,7 +356,7 @@ def cex_search(query, intent=None, limit=40, grade=None, identity=None, selected
     def exact_result(h, selected=False):
         title=str(_first(h,"boxName","name","title","productName") or "Unknown")
         category=str(_first(h,"categoryName","categoryFriendlyName","category","superCatName") or "")
-        actual=cex_grade_from_title(title); sc=_cex_candidate_score(title,category,search_query,intent,identity,actual)
+        actual=cex_grade_from_title(title); sc=_cex_candidate_score(title,_cex_category_text(h),search_query,intent,identity,actual)
         if sc is None: return {"ok":False,"status":"CeX selection rejected","detail":"The selected CeX catalogue record conflicts with the locked RetroHQ identity."}
         prices=_cex_prices(h)
         return {"ok":True,"score":sc,"product":title,"productId":_first(h,"boxId","box_id","objectID","id"),
@@ -348,7 +388,7 @@ def cex_search(query, intent=None, limit=40, grade=None, identity=None, selected
     ranked=[]
     for h in hits:
         title=str(_first(h,"boxName","name","title","productName") or "")
-        category=str(_first(h,"categoryName","categoryFriendlyName","category","superCatName") or "")
+        category=_cex_category_text(h)
         sc=_cex_candidate_score(title,category,search_query,intent,identity,grade)
         if sc is not None: ranked.append((sc,h))
     ranked.sort(key=lambda x:x[0],reverse=True)
