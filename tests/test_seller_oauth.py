@@ -53,6 +53,7 @@ class SellerOAuthTests(unittest.TestCase):
         self.assertFalse(result["ok"])
         request.assert_not_called()
 
+    @unittest.skipIf(os.name == "nt", "POSIX private token file permissions are verified on Linux CI")
     def test_code_exchange_stores_refresh_only_and_refreshes_access(self):
         start = ebay_seller.start_authorisation()
         state = parse_qs(urlparse(start["authorizeUrl"]).query)["state"][0]

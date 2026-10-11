@@ -1,126 +1,40 @@
-# Market data repair test (isolated branch)
+# RetroHQ Test 8.4 — use your existing Codespace
 
-This section applies to branch `retrohq-market-repair-8.3`. The working Seller OAuth Test 8.3 branch remains unchanged.
+The working GitHub branch is still **`retrohq-test-8.3`**. The app build is **8.4**. There is no need to create a new Codespace or change eBay's callback URL.
 
-## Restart in Codespaces
+1. Reopen the same Codespace used for the successful CeX and eBay tests.
+2. Check `git status --short --branch`. Preserve any local edits; do not reset them.
+3. If the checkout is clean and on `retrohq-test-8.3`, run:
 
 ```bash
 git fetch origin
-git switch retrohq-market-repair-8.3
-git pull
-fuser -k 8006/tcp
+git pull --ff-only origin retrohq-test-8.3
+```
+
+4. Stop the previous server with Ctrl+C in its terminal, then restart:
+
+```bash
 export EBAY_ENV=sandbox
 python3 server.py
 ```
 
-Open the existing private port 8006 URL. The Sandbox Seller token remains in the private Codespaces home folder; this branch does not reset it.
+5. Open the same **private port 8006** browser URL. Refresh and check the **Test 8.4** header.
+6. In Settings, verify the retained seller connection. The displayed callback URL should be unchanged. Then follow the [8.4 Sandbox acceptance checks](docs/TEST_8_4_NOTES.md).
 
-## Test CeX first
+If the branch differs, there are local changes, or the pull cannot fast-forward, inspect the checkout before proceeding. Do not create a replacement Codespace or force a reset.
 
-1. Open **Buy Check**, search for **PS3 Slim 320GB** and keep **Good / no box**.
-2. Check the visible provider summary and expand **Why this value?**.
-3. If CeX finds multiple credible records, choose the exact model. Confirm only the correct grade/storage/revision.
-4. The UK retail benchmark should appear when the CeX match is strong or explicitly confirmed, even without PriceCharting.
-5. Open **Quick Capture**, type the same item, click **Find likely matches** and check that live CeX evidence appears without clearing your paid price or Area/Shelf.
-6. If CeX reports **Unavailable (HTTP 403)** or another error, record that exact status. Do not invent a value.
+## Existing configuration stays in place
 
-## Separate credentials (do not paste secrets into chat)
+Keep `EBAY_CLIENT_ID`, `EBAY_CLIENT_SECRET`, `EBAY_RUNAME`, `RETROHQ_ADMIN_PIN`, `EBAY_ENV=sandbox`, PriceCharting configuration and optional separate market-data credentials as already tested. Do not paste their values into chat or commit them.
 
-- **CeX UK**: no stored credential; uses an unofficial UK search endpoint. The provider status now reflects the latest attempted live request, not a hard-coded LIVE label. Endpoint availability must be verified from your Codespace.
-- **PriceCharting**: set `PRICECHARTING_API_TOKEN` in GitHub Codespaces secrets when available, then fully restart the Codespace. Until then PriceCharting is genuinely unavailable.
-- **eBay Seller Sandbox**: continues using existing `EBAY_CLIENT_ID`, `EBAY_CLIENT_SECRET`, `EBAY_RUNAME`, `RETROHQ_ADMIN_PIN`, and `EBAY_ENV=sandbox`.
-- **eBay UK production market Browse**: optionally add separate production application credentials as `EBAY_MARKET_CLIENT_ID` and `EBAY_MARKET_CLIENT_SECRET` in Codespaces secrets. These enable real UK active-listing asking-price evidence while keeping the Seller OAuth Sandbox-only. Without them, Sandbox Browse results are correctly labelled test data, never live UK market value. Active asking prices are not sold prices.
+The eBay callback remains `/ebay/oauth/callback` on the existing Codespace HTTPS origin. The Sandbox refresh token remains at `~/.config/retrohq/ebay_seller_sandbox.json`, outside the repository. This update does not change the OAuth scopes or token handling. Keep port 8006 private.
 
-Do not merge the draft repair PR into the stable Test 8.3 branch until CeX and the Quick Capture workflow are validated in Codespaces.
+## Using the import
 
----
+In an item's **Listing** tab, link the exact existing eBay SKU/custom label or listing ID. In **Sales**, enter the administrator PIN and **Fetch / resync orders**. Review matched or unmatched lines and confirm physical stock allocation. Details are captured from eBay automatically; no sale needs to be retyped. Fees are evidence, and actual per-item costs must be confirmed before net profit is shown as confirmed.
 
-# RetroHQ Test 8.3 — eBay Seller OAuth (Sandbox)
+Keep using this browser profile and Codespace address. Export a private inventory backup before clearing browser data. Stock restoration is an explicit physical-return decision; a refund by itself does not put an item back on the shelf.
 
-**Test 8.3 is a separate development branch. Test 8.2 is untouched and remains the rollback version.**
+## Continuity and rollback
 
-This build adds a seller OAuth connection, automatic access-token refresh, a protected connection test, and a seller connection panel in **Settings**. It does **not** yet create listings, import orders into inventory, or handle returns on eBay.
-
-## 1. Add the two new Codespaces secrets
-
-GitHub repository → Settings → Secrets and variables → Codespaces:
-
-- `EBAY_RUNAME` — the exact **Sandbox OAuth RuName** generated by eBay in Developer Portal → Application Keys → Sandbox → User Tokens → Get a Token via Your Application. This is NOT the App ID, display title, or callback URL.
-- `RETROHQ_ADMIN_PIN` — choose a new private PIN/passphrase **at least 8 characters** long. It protects seller actions in the prototype. Do not reuse the demo manager PIN.
-
-Keep your existing `EBAY_CLIENT_ID` (Sandbox App ID) and `EBAY_CLIENT_SECRET` (Sandbox Cert ID) Codespaces secrets. Do **not** put any credentials, tokens, passwords, or authorisation codes into chat or the repository.
-
-Restart the Codespace after adding secrets so they load into its environment.
-
-## 2. Run the new branch
-
-In your Codespaces terminal:
-
-```bash
-git fetch origin
-git switch retrohq-test-8.3
-git pull
-export EBAY_ENV=sandbox
-python3 server.py
-```
-
-If port 8006 is already occupied, stop the old server with **Ctrl+C** in its terminal first.
-
-In the Codespaces **Ports** tab, open forwarded **port 8006** using its **HTTPS browser URL**. Keep the port visibility **Private**. Do not make this development server public; it has no production user login.
-
-## 3. Set eBay's Auth Accepted URL
-
-In RetroHQ → **Settings → eBay Seller · Sandbox**, copy the **eBay Auth Accepted URL** shown in the box.
-
-It will look like:
-
-```
-https://YOUR-CODESPACE-NAME-8006.app.github.dev/ebay/oauth/callback
-```
-
-This is only an example pattern; **copy your exact URL from RetroHQ**.
-
-In the eBay Developer Portal → Application Keys → **Sandbox User Tokens** → **Get a Token from eBay via Your Application**, edit:
-
-- Display Title: `RetroHQ Test Sandbox`
-- Privacy Policy URL: `https://github.com/jamiedenny83-byte/retrohq-prototype/blob/retrohq-test-8.2/PRIVACY_POLICY_SANDBOX.md`
-- **Auth Accepted URL:** paste the exact Codespaces callback URL copied from RetroHQ.
-- **Auth Declined URL:** leave blank to use eBay's default rejection page.
-
-Save. Confirm the generated Sandbox **OAuth RuName** is the one stored as `EBAY_RUNAME`.
-
-**Why this is needed:** The previous Developer Portal token was a short-lived manual test token. For automatic authorisation, eBay must redirect the seller's browser back to RetroHQ with a single-use code. eBay uses the RuName in the authorisation and token-exchange requests.
-
-If you create a different Codespace with a new URL, update the Auth Accepted URL in eBay before reconnecting.
-
-## 4. Connect the Sandbox Seller
-
-In RetroHQ → **Settings**:
-
-1. Enter the private `RETROHQ_ADMIN_PIN` in the masked PIN field in Settings (never share it in chat).
-2. Click **Connect eBay Seller**.
-3. Sign in to eBay Sandbox as `testuser_retrohq_seller`.
-4. Click **Agree and Continue**.
-5. eBay redirects to RetroHQ Settings. The connection should show **Seller authorised**.
-6. Enter your PIN again in Settings and click **Test seller APIs**. This makes **read-only** Inventory and Fulfilment API calls. No listings, purchases, or orders are created.
-
-A failed Inventory/Orders check may mean the Sandbox seller has no test data, a permission is missing, or eBay Sandbox has limited support. The test shows each API result separately.
-
-## Security and limitations
-
-- This integration is **Sandbox-only**, even if the main market-data adapter can run against production. The seller integration refuses to operate unless `EBAY_ENV=sandbox`.
-- The refresh token is stored in a private file at `~/.config/retrohq/ebay_seller_sandbox.json` with permissions 0600, **outside the GitHub repository and web root**. The browser never receives it.
-- The callback checks a short-lived, one-use OAuth state; the authorization code is exchanged server-side. Callback requests are excluded from the app's HTTP access log.
-- Do not expose port 8006 publicly. This remains a single-developer prototype, not a multi-user production service.
-- Codespaces can be deleted or rebuilt; the local token file is not a durable backup. Reconnect the seller if the file is lost.
-- The earlier Developer Portal-generated access token does **not** need to be copied anywhere.
-- eBay listing publication, order sync, dispatch, returns and durable inventory storage are **future work**, not enabled by this branch.
-
-## Rollback
-
-```bash
-git switch retrohq-test-8.2
-python3 server.py
-```
-
-The original Test 8.2 branch has not been modified.
+Read [HANDOVER.md](docs/HANDOVER.md) for the next development chat. Read [TEST_8_4_NOTES.md](docs/TEST_8_4_NOTES.md) before rollback. The preserved code branches are `retrohq-rollback-8.3-verified` and `retrohq-rollback-before-8.4`. A code rollback does not roll back business data.

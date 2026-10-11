@@ -271,21 +271,29 @@ def normalize_orders(orders):
     """Expose only order reconciliation fields. No buyer identity or addresses."""
     items=[]
     for order in orders:
-        if not isinstance(order,dict): continue
+        if not isinstance(order,dict): raise ValueError("Invalid order")
         oid=str(order.get("orderId") or "")
-        if not oid: continue
+        if not oid: raise ValueError("Missing order identity")
+        for field in ("cancelStatus", "paymentSummary", "pricingSummary"):
+            if order.get(field) is not None and not isinstance(order[field], dict):
+                raise ValueError("Invalid order details")
         payment=str(order.get("orderPaymentStatus") or "UNKNOWN")
-        cancellation=str((order.get("cancelStatus") or {}).get("cancelState") or "NONE")
+        cancellation=str((order.get("cancelStatus") or {}).get("cancelState") or "UNKNOWN")
         fulfillment=str(order.get("orderFulfillmentStatus") or "UNKNOWN")
         created=str(order.get("creationDate") or "")[:10]
-        for line in order.get("lineItems") or []:
+        lines = order.get("lineItems") or []
+        if not isinstance(lines, list): raise ValueError("Invalid order lines")
+        order_refunds = bool((order.get("paymentSummary") or {}).get("refunds"))
+        for line in lines:
+            if not isinstance(line, dict):
+                raise ValueError("Invalid order line")
             lid=str(line.get("lineItemId") or "")
-            if not lid: continue
-            price=_order_money(line.get("discountedLineItemCost")) if line.get("discountedLineItemCost") else None
-            if price is None: price=_order_money(line.get("lineItemCost"))
-            try: quantity=int(line.get("quantity",1))
-            except (ValueError,TypeError): quantity=0
-            if quantity<1: quantity=0
+            if not lid: raise ValueError("Missing order line identity")
+            # A supplied but invalid discounted value must not fall back to a larger price.
+            price=_order_money(line.get("discountedLineItemCost") if "discountedLineItemCost" in line else line.get("lineItemCost"))
+            raw_quantity = line.get("quantity")
+            quantity = raw_quantity if type(raw_quantity) is int and raw_quantity > 0 else 0
+            refund_detected = order_refunds or bool(line.get("refunds"))
             items.append({
                 "key":oid+":"+lid,"orderId":oid,"lineItemId":lid,
                 "sku":str(line.get("sku") or ""),"listingId":str(line.get("legacyItemId") or line.get("listingId") or ""),
@@ -293,31 +301,52 @@ def normalize_orders(orders):
                 "quantity":quantity,"price":price,"currency":"GBP" if price is not None else None,
                 "paymentStatus":payment,"cancelState":cancellation,
                 "fulfillmentStatus":fulfillment,"date":created,
+                "refundDetected":refund_detected,
+                "orderFee":_order_money(order.get("totalMarketplaceFee")),
+                "orderShipping":_order_money((order.get("pricingSummary") or {}).get("deliveryCost")),
+                "orderLineCount":len(lines),
                 "eligible":payment=="PAID" and cancellation in ("NONE","NOT_REQUESTED") and
-                  quantity>0 and price is not None,
-                "feeStatus":"Not provided by this order import — reconcile separately",
+                  not refund_detected and quantity>0 and price is not None,
+                "feeStatus":"Order-level evidence only; confirm allocation, postage and packaging separately",
             })
-    return items
+    unique = {}
+    for item in items:
+        identity = (item["orderId"], item["lineItemId"])
+        if identity in unique and unique[identity] != item:
+            raise ValueError("Order changed during pagination; retry")
+        unique[identity] = item
+    return list(unique.values())
 
 
-def list_orders(limit=50):
+def list_orders(limit=100):
     """Sandbox-only read of checkout-complete orders; never publishes or modifies listings."""
     token=_user_token()
     if not token["ok"]: return {"ok":False,"status":token.get("status","Seller not connected")}
     limit=min(100,max(1,int(limit)))
-    request=Request("https://api.sandbox.ebay.com/sell/fulfillment/v1/order?"+
-                    urlencode({"limit":limit,"offset":0}),
-                    headers={"Authorization":"Bearer "+token["token"],
-                             "Accept":"application/json",
-                             "X-EBAY-C-MARKETPLACE-ID":"EBAY_GB"})
     try:
-        with urlopen(request,timeout=20) as response:
-            data=json.loads(response.read().decode("utf-8"))
-        raw=data.get("orders") or []
+        raw=[]
+        truncated=False
+        # Bound work to 1,000 orders; never follow an upstream URL with our bearer token.
+        # eBay's default creation-date window is used, and disclosed to the user.
+        for page in range(10):
+            request=Request("https://api.sandbox.ebay.com/sell/fulfillment/v1/order?"+
+                            urlencode({"limit":limit,"offset":page*limit}),
+                            headers={"Authorization":"Bearer "+token["token"],
+                                     "Accept":"application/json",
+                                     "X-EBAY-C-MARKETPLACE-ID":"EBAY_GB"})
+            with urlopen(request,timeout=20) as response:
+                data=json.loads(response.read().decode("utf-8"))
+            if not isinstance(data,dict): raise ValueError("Invalid response")
+            batch=data.get("orders") or []
+            if not isinstance(batch,list): raise ValueError("Invalid orders response")
+            raw.extend(batch)
+            truncated=bool(data.get("next") or ((data.get("total") or 0)>len(raw)))
+            if not truncated: break
+            if not batch: raise ValueError("Pagination made no progress")
         return {"ok":True,"environment":"sandbox","orders":normalize_orders(raw),
                 "sampledOrders":len(raw),"totalOrders":data.get("total"),
-                "truncated":bool(data.get("next") or ((data.get("total") or 0)>len(raw))),
-                "note":"Read-only checkout-complete orders. Seller fees and returns require separate verification."}
+                "truncated":truncated,
+                "note":"Read-only orders in eBay's default creation-date window. Older orders and returns require Seller Hub verification."}
     except HTTPError as exc:
         return {"ok":False,"status":"eBay Fulfillment orders HTTP {}.".format(exc.code)}
     except (URLError,TimeoutError,OSError,ValueError,TypeError):
