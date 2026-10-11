@@ -255,6 +255,75 @@ def _read_seller_endpoint(path, token):
         return {"ok": False, "status": "eBay API unavailable."}
 
 
+def _order_money(value):
+    """Amounts in the Fulfillment response are quoted in the listing currency."""
+    if not isinstance(value,dict) or value.get("currency")!="GBP": return None
+    try:
+        from decimal import Decimal
+        amount=Decimal(str(value.get("value")))
+        if not amount.is_finite() or amount<0: return None
+        return float(amount.quantize(Decimal("0.01")))
+    except (ValueError,TypeError,ArithmeticError):
+        return None
+
+
+def normalize_orders(orders):
+    """Expose only order reconciliation fields. No buyer identity or addresses."""
+    items=[]
+    for order in orders:
+        if not isinstance(order,dict): continue
+        oid=str(order.get("orderId") or "")
+        if not oid: continue
+        payment=str(order.get("orderPaymentStatus") or "UNKNOWN")
+        cancellation=str((order.get("cancelStatus") or {}).get("cancelState") or "NONE")
+        fulfillment=str(order.get("orderFulfillmentStatus") or "UNKNOWN")
+        created=str(order.get("creationDate") or "")[:10]
+        for line in order.get("lineItems") or []:
+            lid=str(line.get("lineItemId") or "")
+            if not lid: continue
+            price=_order_money(line.get("discountedLineItemCost")) if line.get("discountedLineItemCost") else None
+            if price is None: price=_order_money(line.get("lineItemCost"))
+            try: quantity=int(line.get("quantity",1))
+            except (ValueError,TypeError): quantity=0
+            if quantity<1: quantity=0
+            items.append({
+                "key":oid+":"+lid,"orderId":oid,"lineItemId":lid,
+                "sku":str(line.get("sku") or ""),"listingId":str(line.get("legacyItemId") or line.get("listingId") or ""),
+                "title":str(line.get("title") or "")[:180],
+                "quantity":quantity,"price":price,"currency":"GBP" if price is not None else None,
+                "paymentStatus":payment,"cancelState":cancellation,
+                "fulfillmentStatus":fulfillment,"date":created,
+                "eligible":payment=="PAID" and cancellation in ("NONE","NOT_REQUESTED") and
+                  quantity>0 and price is not None,
+                "feeStatus":"Not provided by this order import — reconcile separately",
+            })
+    return items
+
+
+def list_orders(limit=50):
+    """Sandbox-only read of checkout-complete orders; never publishes or modifies listings."""
+    token=_user_token()
+    if not token["ok"]: return {"ok":False,"status":token.get("status","Seller not connected")}
+    limit=min(100,max(1,int(limit)))
+    request=Request("https://api.sandbox.ebay.com/sell/fulfillment/v1/order?"+
+                    urlencode({"limit":limit,"offset":0}),
+                    headers={"Authorization":"Bearer "+token["token"],
+                             "Accept":"application/json",
+                             "X-EBAY-C-MARKETPLACE-ID":"EBAY_GB"})
+    try:
+        with urlopen(request,timeout=20) as response:
+            data=json.loads(response.read().decode("utf-8"))
+        raw=data.get("orders") or []
+        return {"ok":True,"environment":"sandbox","orders":normalize_orders(raw),
+                "sampledOrders":len(raw),"totalOrders":data.get("total"),
+                "truncated":bool(data.get("next") or ((data.get("total") or 0)>len(raw))),
+                "note":"Read-only checkout-complete orders. Seller fees and returns require separate verification."}
+    except HTTPError as exc:
+        return {"ok":False,"status":"eBay Fulfillment orders HTTP {}.".format(exc.code)}
+    except (URLError,TimeoutError,OSError,ValueError,TypeError):
+        return {"ok":False,"status":"eBay Sandbox orders temporarily unavailable."}
+
+
 def test_connection():
     """Read-only smoke test; never creates listings or orders."""
     token = _user_token()
