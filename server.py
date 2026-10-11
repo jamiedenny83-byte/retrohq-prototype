@@ -779,7 +779,7 @@ class H(SimpleHTTPRequestHandler):
         self.end_headers(); self.wfile.write(raw)
     def do_POST(self):
         u = urlparse(self.path)
-        if u.path not in ("/api/ebay-seller/start", "/api/ebay-seller/test"):
+        if u.path not in ("/api/ebay-seller/start", "/api/ebay-seller/test", "/api/ebay-seller/orders"):
             self.send_json({"ok": False, "status": "Not found."}, 404); return
         if self.headers.get("X-RetroHQ-Action") != "seller-oauth" or self.headers.get("Sec-Fetch-Site", "same-origin") != "same-origin":
             self.send_json({"ok": False, "status": "Request blocked."}, 403); return
@@ -794,6 +794,8 @@ class H(SimpleHTTPRequestHandler):
             self.send_json({"ok": False, "status": ebay_seller.admin_pin_error()}, 403); return
         if u.path == "/api/ebay-seller/start":
             result = ebay_seller.start_authorisation()
+        elif u.path == "/api/ebay-seller/orders":
+            result = ebay_seller.list_orders()
         else:
             result = ebay_seller.test_connection()
         self.send_json(result, 200 if result.get("ok") else 400)
