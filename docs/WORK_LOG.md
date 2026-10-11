@@ -21,3 +21,11 @@ Append dated summaries; preserve earlier entries. Every session should record re
 - Updated build label, startup instructions, CI Node test step, rollback/versioning guidance and permanent handover records. 8.5/8.6 work was not pulled into 8.4.
 - User asked whether Astra/medium was suitable after Sol/high. Explained that model choice does not alter app configuration and that verification plus repository continuity are the safeguards; no model switch was performed by this task.
 - Upload/CI status is recorded in the next entry after remote verification. Live Codespace/Sandbox acceptance remains outstanding.
+
+### Upload and Linux CI verified
+- Uploaded implementation commit `003875c575efd4d61079cfbdfc5d441b725f61c4` to `retrohq-test-8.3` through the connected GitHub account. The terminal had no GitHub credentials, so no credential/settings change was made.
+- Verified remote tree `e06368c437378396e923922200aac2720f606e26` exactly matched the locally tested source. Updated the branch with an expected-head check; no force push, rename or merge.
+- Linux GitHub Actions succeeded for both [push run 38154183696](https://github.com/jamiedenny83-byte/retrohq-prototype/actions/runs/38154183696) and [PR run 38154186887](https://github.com/jamiedenny83-byte/retrohq-prototype/actions/runs/38154186887). Python/CeX/OAuth and Node reconciliation steps all succeeded; the POSIX token-permission check is enabled on Linux.
+- Updated [draft PR #47](https://github.com/jamiedenny83-byte/retrohq-prototype/pull/47) title/description to the actual 8.4 scope; kept it open and draft with the existing 8.2 target. No issue was closed or PR merged.
+- Local checkout was aligned with the identical uploaded commit and was clean before this documentation-only completion entry.
+- Outstanding: existing-Codespace live acceptance and a separately verified branch/PR transition to `current`. The Codespace URL/name was not supplied or independently inspected. No secrets, callback settings, token files or Codespaces were changed.

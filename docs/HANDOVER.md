@@ -2,6 +2,8 @@
 
 Last updated: 2026-10-11 (Europe/London).
 
+**Uploaded implementation:** `003875c575efd4d61079cfbdfc5d441b725f61c4` on `retrohq-test-8.3`. Both push and PR Linux CI runs passed. A subsequent documentation-only completion commit records these results; inspect the current remote tip before changing it. Live Codespace acceptance is still pending.
+
 ## Current work
 Milestone 8.4 implementation: read-only eBay Sandbox sales import and inventory reconciliation. See [test notes](TEST_8_4_NOTES.md) for actual functionality, limitations, update instructions and acceptance checks; see [work log](WORK_LOG.md) for verification/upload results. Do not mark live acceptance complete solely because offline tests pass.
 
