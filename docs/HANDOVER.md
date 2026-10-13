@@ -48,3 +48,6 @@ Open draft PR #47 targets 8.2. Do not merge until the user approves. Older PR #1
 
 ## Continuity limitations
 The old chats were only partially retrievable: assistant messages appeared as content-reference placeholders. Do not claim full access to them. The GitHub roadmap and user's confirmation supplied the reliable scope. This repository now holds the ongoing handover; no credentials or full private chat transcripts belong here.
+
+## Photo/barcode handover — 2026-10-13
+The own-photo identification requirement is now implemented using optional OpenAI API access, with explicit user review before market search. Barcode lookup validates complete codes and uses the resolved product name for further searches. Read PHOTO_BARCODE.md for private setup, tests and remaining real-photo acceptance. User has no configured photo API key yet. Keep marketplace integration and crosslisting central while enabling the core buying/inventory workflow.

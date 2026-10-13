@@ -68,3 +68,8 @@ Append dated summaries; preserve earlier entries. Every session should record re
 - Updated [draft PR #47](https://github.com/jamiedenny83-byte/retrohq-prototype/pull/47) title/description to the actual 8.4 scope; kept it open and draft with the existing 8.2 target. No issue was closed or PR merged.
 - Local checkout was aligned with the identical uploaded commit and was clean before this documentation-only completion entry.
 - Outstanding: existing-Codespace live acceptance and a separately verified branch/PR transition to `current`. The Codespace URL/name was not supplied or independently inspected. No secrets, callback settings, token files or Codespaces were changed.
+
+## 2026-10-13 — Photo and barcode implementation
+Inspected current branch/code and retained retrohq-test-8.3, existing Codespace configuration and rollback refs. Added item_identification.py, protected photo endpoints, photo review UI, barcode check-digit validation and product-title propagation into market lookup. No seller OAuth/configuration edits.
+Validation: full Python suite 48 tests (47 passed, one POSIX permission check skipped on Windows); eight identification tests passed after adding endpoint guards. JavaScript syntax and 19 Node regressions passed. Fresh Edge context with mocked APIs passed preview, explicit confirmation, PIN clearing, acquisition details retained, unchanged stock, barcode Enter and absence of invented price.
+Live photo/key and physical camera acceptance remain pending. See PHOTO_BARCODE.md. Upload remains subject to branch lease and GitHub CI.

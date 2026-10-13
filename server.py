@@ -5,6 +5,7 @@ from urllib.error import HTTPError, URLError
 from pathlib import Path
 import json, os, time, threading, re, base64, statistics
 import ebay_seller
+import item_identification
 
 ROOT = Path(__file__).resolve().parent
 PC_PRODUCT = "https://www.pricecharting.com/api/product"
@@ -715,6 +716,13 @@ def pc_detail(product_id=None, barcode=None, query=None):
     return {"ok":True,"id":data.get("id"),"product":data.get("product-name"),"console":data.get("console-name"),"genre":data.get("genre"),"upc":data.get("upc"),"salesVolume":data.get("sales-volume"),"prices":fields}
 
 def pricecharting_lookup(query, barcode, selected_id=None):
+    if barcode:
+        try:
+            barcode = item_identification.normalize_barcode(barcode)
+        except ValueError as error:
+            return {"mode":"invalid-barcode", "result":{"ok":False,"status":"Invalid barcode","detail":str(error)}}
+        if re.sub(r"[\s-]", "", query or "") == barcode:
+            query = ""
     if selected_id:
         result=pc_detail(product_id=selected_id)
         intent=infer_intent(query) if query else {}
@@ -724,7 +732,13 @@ def pricecharting_lookup(query, barcode, selected_id=None):
                 "ok":False,"status":"Rejected mismatched edition",
                 "detail":"The chosen PriceCharting product does not match the item type, title or platform."}}
         return {"mode":"matched","intent":intent,"result":result}
-    if barcode: return {"mode":"matched","intent":infer_intent(query) if query else {},"result":pc_detail(barcode=barcode)}
+    if barcode:
+        result = pc_detail(barcode=barcode)
+        resolved = " ".join(str(result.get(k) or "") for k in ("product", "console")).strip()
+        intent = infer_intent(query or resolved)
+        if result.get("ok") and query and not candidate_allowed({"product-name":result.get("product"),"console-name":result.get("console")},intent):
+            return {"mode":"invalid-barcode","result":{"ok":False,"status":"Barcode and description disagree","detail":"The barcode resolves to another item or platform. Check the barcode or clear the old description."}}
+        return {"mode":"matched","intent":intent,"result":result,"resolvedQuery":resolved if result.get("ok") else query}
     if not query: return {"mode":"error","result":{"ok":False,"status":"No search supplied","detail":"Enter a description or barcode."}}
     intent=infer_intent(query)
     if intent.get("ambiguous") and intent.get("refinements"):
@@ -779,6 +793,21 @@ class H(SimpleHTTPRequestHandler):
         self.end_headers(); self.wfile.write(raw)
     def do_POST(self):
         u = urlparse(self.path)
+        if u.path == "/api/identify-photo":
+            if self.headers.get("X-RetroHQ-Action") != "identify-photo" or self.headers.get("Sec-Fetch-Site", "same-origin") != "same-origin":
+                self.send_json({"ok":False,"status":"Request blocked."},403); return
+            try:
+                size = int(self.headers.get("Content-Length", "0"))
+                if size < 1 or size > 4_100_000:
+                    raise ValueError("Invalid size")
+                payload = json.loads(self.rfile.read(size).decode("utf-8"))
+                if not isinstance(payload,dict): raise ValueError("Invalid payload")
+            except (ValueError,UnicodeError):
+                self.send_json({"ok":False,"status":"Invalid photo request or image too large."},400); return
+            if not ebay_seller.admin_pin_valid(payload.get("pin")):
+                self.send_json({"ok":False,"status":ebay_seller.admin_pin_error()},403); return
+            result = item_identification.identify_photo(payload.get("image"))
+            self.send_json(result,200 if result.get("ok") else 400); return
         if u.path not in ("/api/ebay-seller/start", "/api/ebay-seller/test", "/api/ebay-seller/orders"):
             self.send_json({"ok": False, "status": "Not found."}, 404); return
         if self.headers.get("X-RetroHQ-Action") != "seller-oauth" or self.headers.get("Sec-Fetch-Site", "same-origin") != "same-origin":
@@ -802,6 +831,8 @@ class H(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         u = urlparse(self.path)
+        if u.path == "/api/photo-status":
+            self.send_json(item_identification.photo_status()); return
         if u.path == "/ebay/oauth/callback":
             q = parse_qs(u.query)
             result = ebay_seller.complete_authorisation(
@@ -821,6 +852,10 @@ class H(SimpleHTTPRequestHandler):
         if u.path == "/api/market-search":
             p = parse_qs(u.query); q=(p.get("q") or [""])[0].strip(); barcode=(p.get("barcode") or [""])[0].strip(); selected_id=(p.get("id") or [""])[0].strip(); cex_grade=(p.get("cexGrade") or [""])[0].strip() or None; cex_id=(p.get("cexId") or [""])[0].strip() or None
             lookup = pricecharting_lookup(q, barcode, selected_id)
+            if lookup.get("mode") == "invalid-barcode":
+                self.send_json({"ok":False,"status":lookup["result"]["detail"],"marketValue":None},400); return
+            if lookup.get("resolvedQuery"):
+                q = lookup["resolvedQuery"]
             if lookup.get("mode") == "refinements":
                 self.send_json({"query":q,"barcode":barcode,"marketValue":None,"confidence":"needs-refinement","needsRefinement":True,"intent":lookup.get("intent"),"refinements":lookup.get("refinements",[]),"reason":lookup.get("reason")}); return
             if lookup.get("mode") == "candidates":
