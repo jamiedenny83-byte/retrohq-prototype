@@ -11,6 +11,11 @@ Append dated summaries; preserve earlier entries. Every session should record re
 - Upload target: same working branch, no force/merge/rename. This entry accompanies the implementation commit; verify its remote SHA and Linux CI before the next session. Real paid-order API acceptance remains deferred, not passed.
 - Next: update existing Codespace, test the visible demo, then schedule further app work. Keep a genuine paid Sandbox order as a later focused acceptance check.
 
+### Demo upload verified
+- Uploaded `d6be6cb349d6b3bd6f3a61ec983ec3194e56d61c` on `retrohq-test-8.3`. Remote tree `9b5a0125255e508155f3da1dcbcbac869a541661` exactly matched staged tested files; local checkout aligned cleanly without discarding edits.
+- Linux [push checks 38364717151](https://github.com/jamiedenny83-byte/retrohq-prototype/actions/runs/38364717151) and [PR checks 38364725807](https://github.com/jamiedenny83-byte/retrohq-prototype/actions/runs/38364725807) both completed successfully.
+- Created rollback branch `retrohq-rollback-before-8.4-demo` at `e6a9942714febd058925e99f3733a2f2ab66ce58`. Updated existing draft PR #47 description; no merge, force push or branch rename. This documentation-only follow-up records the uploaded SHA and CI evidence.
+
 ## 2026-10-13 — Nifty review and crosslisting direction
 - Request: compare Nifty with RetroHQ; user subsequently explicitly endorsed crosslisting as a future capability and agreed to record that direction.
 - Reviewed Nifty public product/help material and RetroHQ code/milestone documentation. Public claims do not establish real-world reliability or an available Nifty integration API.
