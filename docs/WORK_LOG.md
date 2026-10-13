@@ -2,6 +2,13 @@
 
 Append dated summaries; preserve earlier entries. Every session should record request, evidence, decisions, changes, verification, upload state and next action. Use Europe/London dates. This public log contains operational summaries, not private chat transcripts.
 
+## 2026-10-13 — scenario clarity and buying/inventory priority
+- User confirmed demo works; reported Paid/Unmatched buttons accumulating confusing cards and insufficient item explanations. Screenshot showed raw IDs/statuses dominating the screen. User prioritised starting buying and inventory use over eBay troubleshooting.
+- Starting uploaded head 7915d34ee286a0ce951fb83b08a50b41151e68f6, existing branch and draft PR #47 verified. Added scenario-specific views with retained ledger indices, active button/guide, and no replay/reset when revisiting a loaded sample. Simplified sales cards to item/price/status/action; technical evidence and return controls expand on demand. Demo totals moved into an expandable recorded-sales section; normal workspace puts backup and practice tools behind a secondary control.
+- Reviewed quick capture: it records purchase, Area/Shelf, condition and a pending valuation without requiring an eBay order. This is code inspection, not new end-to-end operational validation. Shared storage and backup restore remain readiness gaps.
+- Verification: JS syntax, 15 Node tests and whitespace checks pass. An isolated browser test was requested but NOT executed: automatic approval review could not complete because of a usage limit. This is an approval infrastructure failure, not a product test failure; visual acceptance for these latest changes remains pending.
+- Upload target: retrohq-test-8.3, preserving earlier commits and the pre-demo rollback. No seller/CeX server or reconciliation engine changes. Follow-up: visual acceptance and a focused buying/inventory workflow and recovery pass.
+
 ## 2026-10-13 — isolated offline sales demo
 - Request/approval: stop Sandbox website troubleshooting blocking RetroHQ testing; build and upload an isolated demo while preserving the eBay adapter for later acceptance.
 - Starting remote/local head e6a9942714febd058925e99f3733a2f2ab66ce58, working branch retrohq-test-8.3, draft PR #47 open. Earlier Nifty decision notes were preserved and included. No real Sandbox purchase completed; zero-order fetch is expected.

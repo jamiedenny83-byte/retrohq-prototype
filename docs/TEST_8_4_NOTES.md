@@ -3,6 +3,8 @@
 ## Offline sales demo (2026-10-13)
 After updating the existing Codespace, click **Try offline sales demo**. Alternatively append `?demo=1` to the existing app address. No eBay account, listing, purchase or administrator PIN is needed.
 
+The entry link is inside **Backup and practice tools**. Each scenario now shows only its own order with an item description and expected outcome. Switching scenarios preserves progress; revisiting Paid sale does not undo a refund or import. The full sample sales table is expandable. Order IDs, provider statuses and physical return controls are inside **Order details and return options**.
+
 The full app uses fictional inventory in a separate browser storage record and a separate tab lock. It never loads your saved inventory into the demo. All app provider requests are blocked in demo mode; seller connection controls are hidden. **Return to saved workspace** opens the normal app at the same address, with its original storage and connection configuration.
 
 1. Click **Paid sale**, then **Review match and import**. Confirm the Silent Hill 2 demo stock record.

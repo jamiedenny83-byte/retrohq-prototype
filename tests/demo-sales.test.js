@@ -2,6 +2,14 @@ const {test}=require('node:test');
 const assert=require('node:assert/strict');
 const D=require('../demo-sales.js'),S=require('../sales-sync.js');
 const seed=()=>D.seed({settings:{offerPct:45},items:[]});
+test('scenario view selects its order without losing the accumulated ledger',()=>{
+ const state=seed();S.ingest(state,D.orders('paid'));S.ingest(state,D.orders('unmatched'));S.ingest(state,D.orders('multi'));
+ for(const [scenario,expected] of [['paid','DEMO-ORDER-1'],['unmatched','DEMO-ORDER-2'],['multi','DEMO-ORDER-3'],['refund','DEMO-ORDER-1']]){
+  const rows=state.ebaySync.lines.filter(row=>D.visible(row,scenario));
+  assert.deepEqual(rows.map(row=>row.latest.orderId),[expected]);
+ }
+ assert.equal(state.ebaySync.lines.length,3);assert.equal(state.ebaySync.lines.filter(row=>D.visible(row,'error')).length,3);
+});
 test('demo state and storage remain separate from the saved workspace through reset',()=>{
  const values=new Map();const storage={getItem:k=>values.get(k)||null,setItem:(k,v)=>values.set(k,v)};
  const live=S.storage(storage);live.save({items:[{id:1,title:'Private stock'}]});

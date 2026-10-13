@@ -1,5 +1,10 @@
 # RetroHQ decision record
 
+## 2026-10-13 — buying and inventory first; clearer screens
+- User wants RetroHQ usable for buying and physical stock management now; eBay remains important but optional and must not block that workflow. Prioritise acquisition, valuation, locations, processing, inventory accuracy and recoverable records before more marketplace breadth.
+- User found the sales screen cluttered and scenario buttons confusing. Show only the chosen scenario's order, preserve accumulated progress, explain fictional items and expected outcomes, and put technical evidence and return controls behind expandable details.
+- The current product is still a single-browser prototype. Backup export exists; restore UI and shared durable storage remain gaps before reliance as a sole operational stock system. Do not imply a full operational acceptance test has passed.
+
 ## 2026-10-13 — offline acceptance first
 - User approved isolated demo mode for 8.4 to stop Sandbox website errors blocking RetroHQ development. Use the same normalized order model and reconciliation engine as the preserved eBay integration.
 - Keep fictional inventory in separate storage, label every demo screen, block provider requests and make returning to the original workspace explicit. Reset/export must target only the current workspace.
