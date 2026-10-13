@@ -38,3 +38,6 @@
 
 ## 2026-10-13 — Photo identification and barcode repair
 User confirmed recognition of their own item photo is a core original requirement, and selected preparing OpenAI integration without an existing API key. Implemented optional private server-side Responses integration, confirmation before catalogue search, and barcode validation/resolved identity propagation. Preserve acquisition cost/location and existing CeX/Seller configuration. Setup and acceptance limits: PHOTO_BARCODE.md. Real photo acceptance requires the user's private API key; do not claim live recognition tested.
+
+## 2026-10-13 — Connected reseller journey
+User clarified the product purpose: replace repeated Lens identification, eBay research, inventory entry and listing/stock administration with one connected record. Explicitly authorised building/uploading the photo → buying decision → inventory segment now. Retain a compressed reference photo, confirmed identity, valuation evidence and acquisition cost snapshot. Keep unknown costs unknown and estimates distinct from actual sale profit. Listing/crosslisting remains an important next extension, not implemented by this acquisition change.

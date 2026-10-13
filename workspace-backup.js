@@ -19,6 +19,7 @@ function validate(state){
  const ids=new Set();
  for(const i of state.items){
   if(!object(i)||!Number.isSafeInteger(i.id)||ids.has(i.id)||typeof i.title!=='string'||!i.title.trim()||typeof i.status!=='string'||!Array.isArray(i.timeline)||i.timeline.some(t=>!Array.isArray(t)||t.length<2||t.some(v=>typeof v!=='string')))fail('Invalid or duplicate inventory record.');
+  if(i.photoData!=null&&!(typeof i.photoData==='string'&&i.photoData.length<=250000&&/^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/.test(i.photoData)))fail('Invalid reference photo.');
   ids.add(i.id);
   for(const k of ['buy','processingCosts'])if(typeof i[k]!=='number'||!Number.isFinite(i[k])||i[k]<0)fail('Invalid purchase or processing cost.');
   if(i.sale!=null&&(!object(i.sale)||typeof i.sale.price!=='number'||i.sale.price<0||typeof i.sale.date!=='string'))fail('Invalid sale record.');

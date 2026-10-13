@@ -51,3 +51,7 @@ The old chats were only partially retrievable: assistant messages appeared as co
 
 ## Photo/barcode handover — 2026-10-13
 The own-photo identification requirement is now implemented using optional OpenAI API access, with explicit user review before market search. Barcode lookup validates complete codes and uses the resolved product name for further searches. Read PHOTO_BARCODE.md for private setup, tests and remaining real-photo acceptance. User has no configured photo API key yet. Keep marketplace integration and crosslisting central while enabling the core buying/inventory workflow.
+
+## Connected buying implementation — 2026-10-13
+Implemented photo retention through Buy Check → acquisition → inventory, cost-aware profit/max-buy estimates, historical snapshot, reference-photo display/download and backup validation. Private CeX/Seller settings and same Codespace/branch preserved. Rollback branch retrohq-rollback-before-connected-buying verified at c45cd48fd17db4ae99c23fc47b6a221c9911ec20.
+Read CONNECTED_BUYING.md for the acceptance path and PHOTO_BARCODE.md for key setup. Real photo acceptance remains pending. Local storage is suitable only for a small trial; reference images are compressed and full-quality listing assets/shared storage still need development. Existing source screenshots/counters are not converted into images.

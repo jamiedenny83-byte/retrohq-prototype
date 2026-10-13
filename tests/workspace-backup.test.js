@@ -29,3 +29,8 @@ test('failed recovery write or final save preserves stock; successful restore re
   if(failAt)assert.equal(data.get(key),before);
  }
 });
+test('reference photos survive portable backup and unsafe photo data is rejected',()=>{
+ const state=sample();state.items[0].photoData='data:image/jpeg;base64,abcd';
+ assert.equal(B.parse(B.pack(state,'demo'),'demo').state.items[0].photoData,state.items[0].photoData);
+ state.items[0].photoData='data:text/html;base64,abcd';assert.throws(()=>B.parse(B.pack(state,'demo'),'demo'));
+});

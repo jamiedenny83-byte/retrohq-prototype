@@ -24,3 +24,6 @@ Eight offline identification tests pass, including provider request structure an
 Real photo recognition remains unverified until an API key is configured and a real item is tested. Physical mobile camera capture and hardware scanner devices have not been tested. Existing real paid-order eBay Sandbox acceptance remains pending.
 
 References: https://developers.openai.com/api/docs/models/gpt-4.1-mini and https://developers.openai.com/api/docs/guides/structured-outputs and https://www.pricecharting.com/api-documentation
+
+## Connected buying update
+The later connected buying build now retains a compressed reference photo on saved inventory and includes it in backups. This supersedes the earlier statement that photos are never persisted. Identification still sends the photo to OpenAI only after the user's action. See CONNECTED_BUYING.md for photo limits, cost estimates and the full trial.
