@@ -102,3 +102,6 @@ Validation: 35 Node tests passed. Full Python suite 49 tests: 48 passed, one POS
 
 ### Item editor upload confirmed
 Implementation de4987a36343f125287b0846e6708320f1a150c6 uploaded to retrohq-test-8.3; remote tree cb09cb396a5c8046fdae4638011fff4fd94a788b exactly matched tested local files. Both GitHub Actions runs 38423226315 and 38423217112 passed. Local checkout aligned cleanly without reset. Existing Codespace needs pull/restart; no callback/secret/branch rename. This documentation-only follow-up records completion.
+
+## 2026-10-13 — Sale defaults and preparation handoff
+Inspected continuity and current code; preserved/verified rollback retrohq-rollback-before-sale-default at 48d268a. Updated all three checkout default entry points, explanatory copy and ready-stage onward actions. Fixed existing-listing prompt cancellation and invalid-price handling. Eleven checkout/item-management Node tests passed. Isolated Edge browser passed ready-stage navigation, listing cancel/local record, market value instead of listing price, preserved overrides, basket selection defaults, unknown-price block and sale persistence after reload. No provider/server/OAuth changes. Upload evidence follows.

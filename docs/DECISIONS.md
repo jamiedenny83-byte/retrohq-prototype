@@ -50,3 +50,6 @@ User reports successful real photo identification after adding API credit. Reque
 
 ## 2026-10-13 — Editable inventory and preparation boundaries
 User requested purchase/value editing and fewer processing stages with no manual progression into Sold. Implemented available-item editor (purchase/current value/location/notes), historical before snapshots and timeline; current manual value does not rewrite acquisition evidence or listing prices. Preparation is Acquired → Preparing → Ready to list, with legacy Needs states grouped under Preparing. Processing cannot create/reverse sales or manage Listed; checkout/import controls sale state and Sales owns local dispatch/returns.
+
+## 2026-10-13 — Sale defaults and preparation handoff
+User clarified sale default must be current RetroHQ market value with override; this supersedes listed-price defaults. Preparation still stops at Ready to list, but provides explicit listing/sale handoff. Recording an existing eBay listing does not publish. Sold remains controlled by checkout/import.

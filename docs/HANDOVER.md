@@ -65,3 +65,6 @@ Latest user reports successful live photo recognition (supersedes prior pending/
 
 ## Item editor / processing handover — 2026-10-13
 Available item workspace has Edit details. item-management.js validates monetary edits and records before snapshots while preserving original valuation evidence. Processing has three phases and hard guards against sold/listed transitions. Local fulfilment/physical return controls are in the Sales tab. Rollback retrohq-rollback-before-item-editor verified at 1eb0c49fb995afabc37e3f2484dbfdc26189ba4e. Same branch/Codespace/OAuth retained; see REFINEMENT_TRIAL.md for acceptance.
+
+## 2026-10-13 — Sale defaults and preparation handoff
+Sale defaults / ready-stage handoff: checkout now defaults each new selection to current RetroHQ marketValue, not listing price; unknown values remain blank and overrides persist. Ready to list offers Continue to listing and Record sale. Existing eBay listing recording is explicitly local-only and cancellation is safe. Same Codespace/branch/OAuth. Rollback retrohq-rollback-before-sale-default at 48d268a8b12aaf6db6f3efcd434ca1c431686537.
