@@ -7,6 +7,9 @@ Last updated: 2026-10-13 (Europe/London).
 Demo implementation uploaded as `d6be6cb349d6b3bd6f3a61ec983ec3194e56d61c`; both push and PR Linux checks passed. This subsequent documentation entry records completion. Pre-demo rollback branch `retrohq-rollback-before-8.4-demo` points to the exact pre-demo checkpoint above.
 
 ## Current work
+User clarification: eBay integration and crosslisting remain central priorities. Sequence delivery around getting the core OS into daily use, then extend it; do not treat marketplace work as unimportant.
+
+Clarity changes uploaded at `a5ea0fe912e918a27a140bcdf20205e907b2c728` on the existing branch. Visual browser acceptance remains pending because automatic approval review hit a usage limit. Local branch may still be at the previous checkpoint with equivalent staged changes; compare trees before aligning, preserving all edits.
 Latest user priority: buying and inventory management first, with eBay optional. User confirmed the offline demo runs, then requested clearer scenarios and less screen clutter. The follow-up filters displayed sample orders without deleting progress, adds item/outcome guides, simplifies sales cards and makes backup/practice tools secondary in the normal workspace. Backup restoration and a focused acquisition-to-inventory acceptance pass are next readiness tasks; do not treat the current prototype as a sole stock system yet.
 
 Milestone 8.4 implementation: read-only eBay Sandbox sales import and inventory reconciliation. See [test notes](TEST_8_4_NOTES.md) for actual functionality, limitations, update instructions and acceptance checks; see [work log](WORK_LOG.md) for verification/upload results. Do not mark live acceptance complete solely because offline tests pass.

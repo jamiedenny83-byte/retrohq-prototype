@@ -1,6 +1,7 @@
 # RetroHQ decision record
 
 ## 2026-10-13 — buying and inventory first; clearer screens
+- User clarified that eBay and crosslisting remain central development priorities. Establish daily use of the core system, then build marketplace selling on that same inventory; do not interpret the core-first sequence as deprioritising marketplace integration.
 - User wants RetroHQ usable for buying and physical stock management now; eBay remains important but optional and must not block that workflow. Prioritise acquisition, valuation, locations, processing, inventory accuracy and recoverable records before more marketplace breadth.
 - User found the sales screen cluttered and scenario buttons confusing. Show only the chosen scenario's order, preserve accumulated progress, explain fictional items and expected outcomes, and put technical evidence and return controls behind expandable details.
 - The current product is still a single-browser prototype. Backup export exists; restore UI and shared durable storage remain gaps before reliance as a sole operational stock system. Do not imply a full operational acceptance test has passed.
