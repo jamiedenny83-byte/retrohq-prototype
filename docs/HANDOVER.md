@@ -7,6 +7,7 @@ Last updated: 2026-10-13 (Europe/London).
 Demo implementation uploaded as `d6be6cb349d6b3bd6f3a61ec983ec3194e56d61c`; both push and PR Linux checks passed. This subsequent documentation entry records completion. Pre-demo rollback branch `retrohq-rollback-before-8.4-demo` points to the exact pre-demo checkpoint above.
 
 ## Current work
+Core-trial implementation uploaded at `f247cfcdb54caa06c7fa15f4d44bc2f756e8aa0f` on `retrohq-test-8.3`. Tested local tree matched GitHub exactly; local checkout aligned without discarding earlier work. See CORE_TRIAL.md for the user test path. Existing pre-demo rollback and intervening commits remain available.
 Backup restoration is now implemented for the core trial: preview, mode separation, replacement confirmation, local pre-restore recovery copy and recovery download. New exports include workspace metadata; legacy v1 exports are supported with inferred workspace type. The single-browser/local-storage limitation remains. Test first in demo, then trial five real items alongside existing records.
 
 Browser validation now succeeded for quick capture (cost and location), reload persistence, restore preview/confirmation, recovery retention and invalid-file rejection. Nineteen Node tests pass. This supersedes the earlier browser-tool blockage for this session.
