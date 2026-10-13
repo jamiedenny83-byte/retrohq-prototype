@@ -59,3 +59,6 @@ Read CONNECTED_BUYING.md for the acceptance path and PHOTO_BARCODE.md for key se
 ## Fast photo search — 2026-10-13
 Latest user acceptance: key/model authentication succeeded; real image request reached OpenAI but returned 429. User confirmed zero API credit and now reports credits added. Do not record live recognition as passed until retried.
 Photo search now opens capture/selection immediately and submits automatically without a PIN. Private Codespace access protects this trial; eBay administrative PIN remains. Rollback verified: retrohq-rollback-before-fast-photo-search at bb65efbfbf41081a43bfb5a950083b98457a5182. User needs pull/restart in the same Codespace on port8006.
+
+## Refinement batch — 2026-10-13
+Latest user reports successful live photo recognition (supersedes prior pending/429 notes). Implemented photo handoff, game box default preserving user overrides, transaction checkout with listed prices/channel fee defaults/discounts/credit, and sold inventory section. Read REFINEMENT_TRIAL.md. Rollback before this batch: retrohq-rollback-before-sales-refinements at 05be87612e72b755c0f9a5240c0a805032be1ada. Existing Codespace, private port, branch and OAuth preserved. Shared storage remains outstanding; transaction refunds do not automatically reissue credit or refund payments.

@@ -15,7 +15,7 @@ const scenarios = {
 function visible(row,scenario){const selected=scenarios[scenario];return !selected?.orderId||row.latest.orderId===selected.orderId;}
 function seed(defaults) {
   const state = clone(defaults);
-  state.customers = []; state.creditIssued = 0; state.researchHistory = [];
+  state.customers = []; state.creditIssued = 0; state.researchHistory = []; state.transactions = [];
   state.ebaySync = {lines:[],lastSync:null,message:'Choose a sample scenario to begin.'};
   state.items = [
     ['Silent Hill 2 — DEMO','DEMO-SH2','DEMO-L1',35,2],

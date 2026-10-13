@@ -1,7 +1,7 @@
 /* Portable backups; restore is replacement, never a merge of sales ledgers. */
 (function(root){
 'use strict';
-const fields=['items','customers','settings','creditIssued','researchHistory','ebaySync'];
+const fields=['items','customers','settings','creditIssued','researchHistory','ebaySync','transactions'];
 const maxBytes=5*1024*1024;
 const object=x=>x&&typeof x==='object'&&!Array.isArray(x);
 const fail=message=>{throw Error(message);};
@@ -23,6 +23,17 @@ function validate(state){
   ids.add(i.id);
   for(const k of ['buy','processingCosts'])if(typeof i[k]!=='number'||!Number.isFinite(i[k])||i[k]<0)fail('Invalid purchase or processing cost.');
   if(i.sale!=null&&(!object(i.sale)||typeof i.sale.price!=='number'||i.sale.price<0||typeof i.sale.date!=='string'))fail('Invalid sale record.');
+ }
+ if(state.transactions!=null){
+  if(!Array.isArray(state.transactions))fail('Invalid transactions.');
+  const txIds=new Set();
+  for(const t of state.transactions){
+   if(!object(t)||typeof t.id!=='string'||txIds.has(t.id)||!Array.isArray(t.lines)||!t.lines.length||t.lines.some(l=>!object(l)||!ids.has(l.id))||new Set(t.lines.map(l=>l.id)).size!==t.lines.length)fail('Invalid transaction history.');txIds.add(t.id);
+   for(const k of ['subtotal','discount','total','fee','credit','due'])if(!Number.isSafeInteger(t[k])||t[k]<0)fail('Invalid transaction amount.');
+   if(t.subtotal-t.discount!==t.total||t.total-t.credit!==t.due)fail('Transaction totals do not agree.');
+   for(const [k,total] of [['listedPrice','subtotal'],['price','total'],['discount','discount'],['fee','fee'],['credit','credit']])if(t.lines.some(l=>!Number.isSafeInteger(l[k])||l[k]<0)||t.lines.reduce((a,l)=>a+l[k],0)!==t[total])fail('Transaction allocation does not agree.');
+   if(t.lines.some(l=>l.listedPrice-l.discount!==l.price))fail('Invalid discounted item price.');
+  }
  }
  const customerIds=new Set();
  for(const c of state.customers){if(!object(c)||!Number.isSafeInteger(c.id)||customerIds.has(c.id)||typeof c.name!=='string'||!Number.isFinite(c.credit)||!Array.isArray(c.ledger))fail('Invalid trade account.');customerIds.add(c.id);}

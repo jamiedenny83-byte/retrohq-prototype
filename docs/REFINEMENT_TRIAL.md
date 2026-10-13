@@ -1,0 +1,15 @@
+# Refinement trial: photo, games, checkout and inventory
+
+Export an inventory backup before testing. Continue in the existing Codespace on retrohq-test-8.3 and private port 8006.
+
+1. Photo search: a high-confidence result now fills the description and begins market lookup automatically. A visible photo identity and Correct description action remain. Lower-confidence results still ask for review. Exact catalogue edition/platform choices may still be necessary; visual confidence is not proof of an exact catalogue record.
+2. Game contents: when market identification says software/game, Box/case is ticked by default. Untick it for loose stock. Your explicit choice survives repeat lookup and acquisition handoff. It is a convenience default, not image verification.
+3. Record one sale: choose an available item. Its listed price is loaded and editable. If there is no listing price, enter one; the market valuation is not silently used as a listing price. Changing channel applies its fee preset; In Store EPOS starts at 0%. Fees remain editable.
+4. Basket: choose Add another item. Every physical stock record can appear once. Apply a £ or percentage basket discount, optionally select a trade account and enter credit, then review the remaining amount to pay. Save only after payment has been received. This records payment; it does not take a card payment.
+5. Review: a single transaction appears under Sales → Sale transactions. Discount, fees and credit are allocated proportionally in pennies across items. Credit is payment, not a second discount or reduction of revenue. In-store sales complete; online sales enter dispatch workflow. Historical transaction totals remain available after returns.
+6. Inventory: live Inventory and its search show available stock only. Sold inventory retains sold/completed items, with access to their full item workspace. Sales still handles fulfilment. Return physical stock through the existing explicit return workflow, not by deleting the sale.
+7. Reload, export and restore: inventory, account balance and transaction history must agree. Old backups without transactions remain supported. Demo reset clears demo checkout history too.
+
+Example: two listed items at £10 and £20, £5 overall discount and £10 trade credit produce a £25 sale and £15 remaining payment. A £20 starting credit balance becomes £10, with one redemption entry. Default in-store fees are zero.
+
+Trial boundaries: local browser storage remains; phone/laptop stock is not shared yet. Marketplace publishing/delisting is not implemented by manual checkout. Basket returns preserve historical receipts but do not automatically refund tender or reissue credit. Physical device camera and real provider matching need continued user testing.
