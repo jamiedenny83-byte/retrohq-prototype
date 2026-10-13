@@ -99,3 +99,6 @@ Uploaded implementation 3fd9a5fa1155f2f23f89f8d5bacff1b202ae1915 to retrohq-test
 ## 2026-10-13 — Inventory edit and processing simplification
 Inspected clean branch, open PR/issues and continuity notes. Created/verified rollback before item editor at 1eb0c49. Added item-management.js and editor, preserving acquisition evidence and before snapshots; simplified processing to three phases, grouped legacy stages and guarded all old progression/reversal entry points. Sales now owns local dispatch and returns; checkout/import alone creates sales. No server/CeX/OAuth modifications.
 Validation: 35 Node tests passed. Full Python suite 49 tests: 48 passed, one POSIX-only Windows skip. Isolated Edge browser passed purchase/value/location edit and reload, unknown value, processing stop at ready, listed/sold guards, checkout sale control and dispatch in Sales. Live user acceptance remains next. Upload/CI evidence follows.
+
+### Item editor upload confirmed
+Implementation de4987a36343f125287b0846e6708320f1a150c6 uploaded to retrohq-test-8.3; remote tree cb09cb396a5c8046fdae4638011fff4fd94a788b exactly matched tested local files. Both GitHub Actions runs 38423226315 and 38423217112 passed. Local checkout aligned cleanly without reset. Existing Codespace needs pull/restart; no callback/secret/branch rename. This documentation-only follow-up records completion.
