@@ -28,4 +28,4 @@ jobs:
       - name: Offline seller and CeX market regression tests
         run: python -m unittest discover -s tests -v
       - name: Sales reconciliation and persistence regression tests
-        run: node --test tests/sales-sync.test.js
+        run: node --test tests/sales-sync.test.js tests/demo-sales.test.js

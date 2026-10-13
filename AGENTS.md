@@ -8,4 +8,4 @@ Preserve CeX UK valuation and Sandbox Seller OAuth. Never change the callback ro
 
 Before changing a working branch, preserve and verify its exact SHA as a rollback reference. Never force-push or overwrite existing rollback references. Check PR heads and branch-dependent workflows before renaming a branch. `main` remains the approved baseline; do not merge draft test work automatically.
 
-8.4 scope: read-only Sandbox eBay order import and inventory reconciliation (issues #50/#51). Listing writes/crossposting and production seller access remain out of scope. 8.5 inventory/profitability and 8.6+ marketplace work remain backlog until explicitly scheduled.
+8.4 scope: read-only Sandbox eBay order import and inventory reconciliation plus the user-approved isolated offline sales demo. The 2026-10-13 decisions supersede the older issues #50/#51 sequencing: real paid-order acceptance is deferred and crosslisting is an approved future direction. Listing writes and production seller access remain outside 8.4. 8.5 inventory/profitability and 8.6+ marketplace implementation remain backlog until explicitly scheduled.

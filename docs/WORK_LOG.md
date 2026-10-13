@@ -2,6 +2,24 @@
 
 Append dated summaries; preserve earlier entries. Every session should record request, evidence, decisions, changes, verification, upload state and next action. Use Europe/London dates. This public log contains operational summaries, not private chat transcripts.
 
+## 2026-10-13 — isolated offline sales demo
+- Request/approval: stop Sandbox website troubleshooting blocking RetroHQ testing; build and upload an isolated demo while preserving the eBay adapter for later acceptance.
+- Starting remote/local head e6a9942714febd058925e99f3733a2f2ab66ce58, working branch retrohq-test-8.3, draft PR #47 open. Earlier Nifty decision notes were preserved and included. No real Sandbox purchase completed; zero-order fetch is expected.
+- Added demo-sales.js fixtures and ?demo=1 mode in the existing app. Separate browser storage/lock, visible banner, demo reset/export, provider-request guard, paid/unmatched/two-unit/repeat/refund/cancellation/error controls. Uses unchanged sales-sync.js. Seller/OAuth, callback, CeX server code and Codespace configuration unchanged.
+- Validation: 14/14 Node tests passed. Python 41 tests: 40 passed and 1 Windows POSIX-permission skip, using UTF-8 and local HTTP test access outside the execution sandbox. Initial restricted runs failed due to local networking/temp cleanup; default Windows text decoding also required UTF-8. No product change was made to bypass these environment restrictions.
+- Headless Edge in a fresh isolated profile passed paid/manual/multi-unit imports, costs, repeat/reload, failure retention, refund/physical return, reset, byte-for-byte saved-workspace isolation while in demo, returning to saved stock, exclusive demo tab and zero provider requests. Screenshot reviewed. A sample timestamp was corrected to match the adapter's date-only contract.
+- Upload target: same working branch, no force/merge/rename. This entry accompanies the implementation commit; verify its remote SHA and Linux CI before the next session. Real paid-order API acceptance remains deferred, not passed.
+- Next: update existing Codespace, test the visible demo, then schedule further app work. Keep a genuine paid Sandbox order as a later focused acceptance check.
+
+## 2026-10-13 — Nifty review and crosslisting direction
+- Request: compare Nifty with RetroHQ; user subsequently explicitly endorsed crosslisting as a future capability and agreed to record that direction.
+- Reviewed Nifty public product/help material and RetroHQ code/milestone documentation. Public claims do not establish real-world reliability or an available Nifty integration API.
+- Rechecked local branch/history and GitHub issue #51 and draft PR #47. Local checkout initially clean at e6a9942; PR remains open/draft on retrohq-test-8.3. Existing roadmap parks crosslisting; the new dated decision supersedes that product direction without expanding 8.4.
+- Recorded user-reported successful zero-order Sandbox checks and pending paid-order acceptance. No test listing exists; reported outage is unverified.
+- Changes: decision record, handover and this log only. No application code, credentials, Codespace, branch names or marketplace settings changed. Documentation whitespace checked; no application tests needed for this documentation-only change.
+- Upload state: local notes only, no new commit/push or GitHub issue edit. Next roadmap upload should reconcile issue #51 with the new direction.
+- Next work: complete 8.4 paid-order acceptance when Sandbox is available; scope inventory foundations and crosslisting delivery, choose channels and verify supported integration routes.
+
 ## 2026-10-11 — 8.4 continuation and continuity recovery
 - Request: inspect actual GitHub code, branches, issues and PRs; finish 8.4 on the existing working branch, preserve 8.3 and existing CeX/eBay/Codespace setup, rename to `current` only if safe.
 - Repository: `jamiedenny83-byte/retrohq-prototype`. Working branch began at `34399a0da48c4a3d02f8d3384582c047f6ddaf58`; this already includes two partial order-retrieval commits after verified 8.3.

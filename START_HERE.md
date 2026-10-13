@@ -2,6 +2,8 @@
 
 The working GitHub branch is still **`retrohq-test-8.3`**. The app build is **8.4**. There is no need to create a new Codespace or change eBay's callback URL.
 
+**New: offline sales testing.** After updating, click **Try offline sales demo**. It opens fictional stock and sample orders in separate storage, with no eBay sign-in needed. Start with **Paid sale**, then **Review match and import**. Use **Return to saved workspace** to return to your original inventory. See [demo scenarios](docs/TEST_8_4_NOTES.md).
+
 1. Reopen the same Codespace used for the successful CeX and eBay tests.
 2. Check `git status --short --branch`. Preserve any local edits; do not reset them.
 3. If the checkout is clean and on `retrohq-test-8.3`, run:

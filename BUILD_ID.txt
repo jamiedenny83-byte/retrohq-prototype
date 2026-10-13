@@ -1,1 +1,1 @@
-RetroHQ Test 8.4 — Read-only eBay Sandbox Sales Import and Inventory Reconciliation
+RetroHQ Test 8.4 — Offline Sales Demo and Read-only eBay Sandbox Reconciliation

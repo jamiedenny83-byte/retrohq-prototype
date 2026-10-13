@@ -1,5 +1,20 @@
 # Test 8.4 — eBay sales import and reconciliation
 
+## Offline sales demo (2026-10-13)
+After updating the existing Codespace, click **Try offline sales demo**. Alternatively append `?demo=1` to the existing app address. No eBay account, listing, purchase or administrator PIN is needed.
+
+The full app uses fictional inventory in a separate browser storage record and a separate tab lock. It never loads your saved inventory into the demo. All app provider requests are blocked in demo mode; seller connection controls are hidden. **Return to saved workspace** opens the normal app at the same address, with its original storage and connection configuration.
+
+1. Click **Paid sale**, then **Review match and import**. Confirm the Silent Hill 2 demo stock record.
+2. Open **Actual costs / profit**. Enter fees 10, postage 4, packaging 1 and buyer shipping 3. Sample revenue 80 minus acquisition 35 and processing 2 produces confirmed profit 31 GBP.
+3. Click **Repeat sync**, then reload. The order and sale must remain single entries.
+4. Click **Refund** or **Cancellation** after importing the paid sale. Stock stays sold and profit requires review. Use **Review / restore stock** to simulate a physically received return.
+5. Try **Unmatched sale** and select Nintendo 64 manually. **Two-unit sale** matches both PS3 stock records and allocates 30.01 GBP across them.
+6. **Connection error** displays a simulated failure while retaining stock and the last successful sync.
+7. **Reset demo samples** resets only fictional data after confirmation. Demo exports are named `retrohq-DEMO-backup-*`.
+
+Fixtures use the normalized order shape from the eBay adapter and the unchanged `sales-sync.js` engine. These tests verify RetroHQ behaviour, not eBay API availability, permissions or real checkout completion. A genuine paid Sandbox order remains a later integration acceptance check. Demo state, like current normal state, is local to one browser profile and site address.
+
 ## Scope delivered for Sandbox trial
 - Sales → eBay sales: PIN-protected read-only Fulfillment order retrieval with bounded pagination (up to 1,000 orders within eBay's default order window). A later-page failure offers no partial import. A capped result is disclosed; older orders require Seller Hub verification.
 - Order/line identifiers, SKU, listing ID, paid status, cancellation/refund signals, quantity, line revenue and order-level fee/shipping evidence. No buyer names, addresses or credentials in the browser response.
