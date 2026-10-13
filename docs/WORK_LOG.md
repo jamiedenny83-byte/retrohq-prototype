@@ -95,3 +95,7 @@ Validation: 30 Node tests pass. Full Python suite 49 tests: 48 pass, one POSIX-o
 
 ### Refinement upload and CI confirmed
 Uploaded implementation 3fd9a5fa1155f2f23f89f8d5bacff1b202ae1915 to retrohq-test-8.3 with expected-head protection. Remote tree 2763733a6abc6a76d9fb822ea9dd724cd5788372 matched tested local files. GitHub checks 38413227890 and 38413222143 both succeeded. Updated draft PR47 scope; preserved base/head and no merge. Local checkout aligned cleanly. User can pull/restart the existing Codespace and follow REFINEMENT_TRIAL.md. This documentation-only follow-up records completion.
+
+## 2026-10-13 — Inventory edit and processing simplification
+Inspected clean branch, open PR/issues and continuity notes. Created/verified rollback before item editor at 1eb0c49. Added item-management.js and editor, preserving acquisition evidence and before snapshots; simplified processing to three phases, grouped legacy stages and guarded all old progression/reversal entry points. Sales now owns local dispatch and returns; checkout/import alone creates sales. No server/CeX/OAuth modifications.
+Validation: 35 Node tests passed. Full Python suite 49 tests: 48 passed, one POSIX-only Windows skip. Isolated Edge browser passed purchase/value/location edit and reload, unknown value, processing stop at ready, listed/sold guards, checkout sale control and dispatch in Sales. Live user acceptance remains next. Upload/CI evidence follows.

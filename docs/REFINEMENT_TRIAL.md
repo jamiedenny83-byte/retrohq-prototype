@@ -13,3 +13,7 @@ Export an inventory backup before testing. Continue in the existing Codespace on
 Example: two listed items at £10 and £20, £5 overall discount and £10 trade credit produce a £25 sale and £15 remaining payment. A £20 starting credit balance becomes £10, with one redemption entry. Default in-store fees are zero.
 
 Trial boundaries: local browser storage remains; phone/laptop stock is not shared yet. Marketplace publishing/delisting is not implemented by manual checkout. Basket returns preserve historical receipts but do not automatically refund tender or reissue credit. Physical device camera and real provider matching need continued user testing.
+
+## Item editor and preparation — 2026-10-13
+Open any available stock record and choose Edit details. Correct purchase price, current market value, area/shelf and notes. Blank value means unknown; purchase price requires an explicit amount, including zero. Save/reload and check Timeline. Existing valuation evidence and acquisition snapshot are retained, with previous details saved in edit history. Changing current value is labelled manual and does not alter listing price or the historical buying estimate.
+Processing is now Acquired → Preparing → Ready to list. Existing Needs cleaning/testing/repair/photos/pricing statuses are displayed in Preparing without rewriting history. Listed and sold stock cannot move forward/back through processing. Record sale/import controls Sold or Completed; dispatch steps and physical returns are in the item Sales tab. Dispatch progress is local only, not an eBay update.
