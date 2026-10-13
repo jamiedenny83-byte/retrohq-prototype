@@ -41,3 +41,6 @@ User confirmed recognition of their own item photo is a core original requiremen
 
 ## 2026-10-13 — Connected reseller journey
 User clarified the product purpose: replace repeated Lens identification, eBay research, inventory entry and listing/stock administration with one connected record. Explicitly authorised building/uploading the photo → buying decision → inventory segment now. Retain a compressed reference photo, confirmed identity, valuation evidence and acquisition cost snapshot. Keep unknown costs unknown and estimates distinct from actual sale profit. Listing/crosslisting remains an important next extension, not implemented by this acquisition change.
+
+## 2026-10-13 — Fast everyday photo search
+User requested one/two-action capture and explicitly removed the administrator PIN from everyday photo identification. Photo search opens native capture/file selection in the original click gesture and submits automatically after decoding/resizing. Result review stays explicit; no automatic purchase/stock changes. Existing private Codespace access is the access boundary for this trial, and the port must remain private. Seller PIN, OAuth, callback and secrets remain unchanged. Do not deploy publicly without normal user authentication. Physical phone/browser camera behaviour still needs user acceptance.

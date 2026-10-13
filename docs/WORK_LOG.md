@@ -81,3 +81,7 @@ Outstanding: real photo/key acceptance, mobile camera/device scanner trial, full
 
 ### Connected buying upload confirmed
 Implementation f71dedc4c035ea5c6d10edc6f093a3eec94dced6 uploaded to retrohq-test-8.3. Remote tree exactly matched tested local tree; checkout aligned cleanly without reset. GitHub Actions push 38396627496 and PR 38396636138 both succeeded, including the combined Python and Node checks. Draft PR47 updated to reflect connected buying and the remaining marketplace work; base/head and draft status preserved. No Codespace settings changed. This documentation-only follow-up records completion.
+
+## 2026-10-13 — Fast photo search
+Inspected branch, open PRs/issues and continuity files. Removed PIN only from photo endpoint/UI; retained cross-site/action-header and size checks, one-request concurrency and unchanged Seller admin PIN. Photo search invokes native camera/file chooser from button gesture, automatically submits the selected image and offers explicit retry on errors. Added front-of-flow OpenAI/charge disclosure; preserved confirmation and buying/photo handoff.
+Tests: eight identification endpoint tests passed; 24 Node tests passed. Fresh Edge browser with mocked provider verified chooser activation, auto request without PIN, photo review, unchanged pre-save stock, buying handoff, saved photo and backup recovery. Full Python suite completion and GitHub CI verified during upload. No successful live photo identification claimed; user added credit after confirming the earlier 429 was zero balance. Native phone capture remains untested.

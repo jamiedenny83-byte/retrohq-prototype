@@ -62,19 +62,19 @@ class IdentificationTests(unittest.TestCase):
         with patch.dict(os.environ,{'OPENAI_API_KEY':'test-only'}),patch.object(identification,'urlopen',side_effect=HTTPError('url',429,'secret upstream body',{},None)):
             result=identification.identify_photo(image);self.assertIn('429',result['status']);self.assertNotIn('secret',result['status'])
 
-    def test_photo_endpoint_protects_provider_and_status_hides_key(self):
+    def test_photo_endpoint_blocks_cross_site_and_size_but_does_not_require_pin(self):
         import io
         handler=object.__new__(server.H); handler.path='/api/identify-photo'
         for headers,body,status in [
             ({},b'{}',403),
             ({'X-RetroHQ-Action':'identify-photo','Sec-Fetch-Site':'cross-site'},b'{}',403),
             ({'X-RetroHQ-Action':'identify-photo','Content-Length':'4100001'},b'',400),
-            ({'X-RetroHQ-Action':'identify-photo','Content-Length':'15'},b'{"pin":"wrong"}',403),
+            ({'X-RetroHQ-Action':'identify-photo','Content-Length':'2'},b'[]',400),
         ]:
             handler.headers=headers;handler.rfile=io.BytesIO(body)
             with patch.dict(os.environ,{'RETROHQ_ADMIN_PIN':'test-private-pin'}),patch.object(handler,'send_json') as send,patch.object(identification,'identify_photo') as provider:
                 handler.do_POST();self.assertEqual(send.call_args.args[1],status);provider.assert_not_called()
-        body=json.dumps({'pin':'test-private-pin','image':'test-image'}).encode()
+        body=json.dumps({'image':'test-image'}).encode()
         handler.headers={'X-RetroHQ-Action':'identify-photo','Content-Length':str(len(body))}
         handler.rfile=io.BytesIO(body)
         with patch.dict(os.environ,{'RETROHQ_ADMIN_PIN':'test-private-pin'}),patch.object(handler,'send_json') as send,patch.object(identification,'identify_photo',return_value={'ok':True}) as provider:

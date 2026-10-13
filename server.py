@@ -804,8 +804,8 @@ class H(SimpleHTTPRequestHandler):
                 if not isinstance(payload,dict): raise ValueError("Invalid payload")
             except (ValueError,UnicodeError):
                 self.send_json({"ok":False,"status":"Invalid photo request or image too large."},400); return
-            if not ebay_seller.admin_pin_valid(payload.get("pin")):
-                self.send_json({"ok":False,"status":ebay_seller.admin_pin_error()},403); return
+            # Everyday photo search uses the private Codespace access boundary.
+            # Keep this port private; Seller administration retains its own PIN.
             result = item_identification.identify_photo(payload.get("image"))
             self.send_json(result,200 if result.get("ok") else 400); return
         if u.path not in ("/api/ebay-seller/start", "/api/ebay-seller/test", "/api/ebay-seller/orders"):

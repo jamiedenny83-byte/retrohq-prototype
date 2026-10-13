@@ -55,3 +55,7 @@ The own-photo identification requirement is now implemented using optional OpenA
 ## Connected buying implementation — 2026-10-13
 Implemented photo retention through Buy Check → acquisition → inventory, cost-aware profit/max-buy estimates, historical snapshot, reference-photo display/download and backup validation. Private CeX/Seller settings and same Codespace/branch preserved. Rollback branch retrohq-rollback-before-connected-buying verified at c45cd48fd17db4ae99c23fc47b6a221c9911ec20.
 Read CONNECTED_BUYING.md for the acceptance path and PHOTO_BARCODE.md for key setup. Real photo acceptance remains pending. Local storage is suitable only for a small trial; reference images are compressed and full-quality listing assets/shared storage still need development. Existing source screenshots/counters are not converted into images.
+
+## Fast photo search — 2026-10-13
+Latest user acceptance: key/model authentication succeeded; real image request reached OpenAI but returned 429. User confirmed zero API credit and now reports credits added. Do not record live recognition as passed until retried.
+Photo search now opens capture/selection immediately and submits automatically without a PIN. Private Codespace access protects this trial; eBay administrative PIN remains. Rollback verified: retrohq-rollback-before-fast-photo-search at bb65efbfbf41081a43bfb5a950083b98457a5182. User needs pull/restart in the same Codespace on port8006.

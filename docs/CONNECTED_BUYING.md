@@ -3,7 +3,7 @@
 Use the existing Codespace, branch retrohq-test-8.3 and private port 8006. Export a backup before testing with real items. The app still stores stock in this browser/site address; this build is not shared server storage.
 
 ## Test one complete journey
-1. Open Acquisitions and Buy Check. Select Identify from photo (requires the private OpenAI key described in PHOTO_BARCODE.md), or enter a barcode/description.
+1. Open Acquisitions and Buy Check. Select Photo search (requires the private OpenAI key described in PHOTO_BARCODE.md), or enter a barcode/description.
 2. Confirm or edit the photo suggestion. Choose the exact catalogue item/variant in the provider results. CeX retail is a reference, not a guaranteed eBay selling price. Existing eBay research links remain available for checking selling evidence.
 3. Enter the asking price and estimated fees, seller postage, packaging and preparation. Enter zero deliberately if none. Missing amounts leave profit unknown. The maximum buy is the lower of the configured buying percentage and break-even after these costs; it is not a guarantee of profit.
 4. Select BUY → ACQUIRE. Confirm purchase price, title, condition and location. The photo, identity, evidence and cost estimates travel with the item. Save once.
