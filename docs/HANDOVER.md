@@ -7,6 +7,9 @@ Last updated: 2026-10-13 (Europe/London).
 Demo implementation uploaded as `d6be6cb349d6b3bd6f3a61ec983ec3194e56d61c`; both push and PR Linux checks passed. This subsequent documentation entry records completion. Pre-demo rollback branch `retrohq-rollback-before-8.4-demo` points to the exact pre-demo checkpoint above.
 
 ## Current work
+Backup restoration is now implemented for the core trial: preview, mode separation, replacement confirmation, local pre-restore recovery copy and recovery download. New exports include workspace metadata; legacy v1 exports are supported with inferred workspace type. The single-browser/local-storage limitation remains. Test first in demo, then trial five real items alongside existing records.
+
+Browser validation now succeeded for quick capture (cost and location), reload persistence, restore preview/confirmation, recovery retention and invalid-file rejection. Nineteen Node tests pass. This supersedes the earlier browser-tool blockage for this session.
 User clarification: eBay integration and crosslisting remain central priorities. Sequence delivery around getting the core OS into daily use, then extend it; do not treat marketplace work as unimportant.
 
 Clarity changes uploaded at `a5ea0fe912e918a27a140bcdf20205e907b2c728` on the existing branch. Visual browser acceptance remains pending because automatic approval review hit a usage limit. Local branch may still be at the previous checkpoint with equivalent staged changes; compare trees before aligning, preserving all edits.

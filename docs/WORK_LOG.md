@@ -2,6 +2,13 @@
 
 Append dated summaries; preserve earlier entries. Every session should record request, evidence, decisions, changes, verification, upload state and next action. Use Europe/London dates. This public log contains operational summaries, not private chat transcripts.
 
+## 2026-10-13 — backup restore and core trial
+- User authorised building and uploading backup restoration to begin testing the buying/inventory system. Starting remote head d0655d3682beb84a9cc447476f99095ae4b4a536; local staged clarity work matched that earlier upload and was preserved.
+- Added workspace-backup.js, portable v2 export metadata, legacy import validation, preview counts, explicit replace confirmation, separate demo/saved mode checks and pre-restore recovery download. No merge: inventory, sales history, accounts and business settings replace together. eBay connection and server secrets stay unchanged.
+- A recovery copy must save before stock replacement. Storage failure stops restoration; invalid/oversize/unsafe-text/missing-ledger files are rejected. Text validation is conservative: unsupported markup, double quotes outside ledger identity, and backticks reject a backup rather than rendering unsafe text. This limitation is disclosed in trial notes.
+- Validation: 19 Node tests passed, JavaScript syntax passed. Fresh headless Edge verified quick capture with purchase cost/location, persistence after reload, preview/confirm restore, correct replacement, retained recovery and invalid-file rejection. Approval for this isolated test succeeded this session.
+- Upload target remains retrohq-test-8.3, using an expected-head update and existing draft PR. No branch rename, force push, CeX/OAuth changes or claim of live eBay paid-order acceptance. Next: user demo restore trial, then five real stock items with parallel existing records and downloaded backups.
+
 ## 2026-10-13 — scenario clarity and buying/inventory priority
 - Uploaded implementation `a5ea0fe912e918a27a140bcdf20205e907b2c728` to retrohq-test-8.3, remote tree matched staged tree `56cc7660792c6cd59d87bc7cb3807dd0a4728b3b`. This documentation follow-up records upload and the user's clarification that eBay/crosslisting remain central priorities while establishing core daily use first. Browser verification remains blocked; no claim of visual acceptance.
 - User confirmed demo works; reported Paid/Unmatched buttons accumulating confusing cards and insufficient item explanations. Screenshot showed raw IDs/statuses dominating the screen. User prioritised starting buying and inventory use over eBay troubleshooting.

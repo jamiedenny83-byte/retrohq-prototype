@@ -157,7 +157,7 @@ function ebaySalesPanel(){
  }).join('')||'<p class="muted">No order to show for this scenario yet.</p>'}</div><details class="sale-details"><summary>Sync and storage information</summary><p>Last successful sync: ${escapeText(sync.lastSync||'Never')}.</p><p>${demoMode?'Fictional orders only. No eBay connection.':'Saved in this browser and site address. Export a backup before clearing site data. Older orders, returns and refunds may require Seller Hub verification.'}</p></details></div>`;
 }
 function workspaceBanner(){
- return demoMode?'<div class="notice" role="status"><strong>OFFLINE DEMO — fictional inventory and orders</strong><p>Your saved inventory is separate.</p><a class="btn secondary" href="?">Return to saved workspace</a> <button class="btn secondary" onclick="resetDemo()">Reset demo samples</button> <button class="btn secondary" onclick="exportWorkspace()">Export demo backup</button></div>':'<details class="workspace-tools"><summary>Backup and practice tools</summary><button class="btn secondary" onclick="exportWorkspace()">Export inventory backup</button> <a class="btn secondary" href="?demo=1">Try offline sales demo</a><p>Saved stock stays in this browser and site address. Keep regular backups.</p></details>';
+ return demoMode?'<div class="notice" role="status"><strong>OFFLINE DEMO — fictional inventory and orders</strong><p>Your saved inventory is separate.</p><a class="btn secondary" href="?">Return to saved workspace</a> <button class="btn secondary" onclick="resetDemo()">Reset demo samples</button> <button class="btn secondary" onclick="exportWorkspace()">Export demo backup</button> <button class="btn secondary" onclick="openRestore()">Restore backup</button></div>':'<details class="workspace-tools"><summary>Backup and practice tools</summary><button class="btn secondary" onclick="exportWorkspace()">Export inventory backup</button> <button class="btn secondary" onclick="openRestore()">Restore backup</button> <a class="btn secondary" href="?demo=1">Try offline sales demo</a><p>Saved stock stays in this browser and site address. Keep regular backups.</p></details>';
 }
 function demoControls(){
  const selected=state.ebaySync.scenario,guide=RetroDemo.scenarios[selected];
@@ -207,7 +207,39 @@ window.editImportedCosts=id=>{
  const i=state.items.find(x=>x.id===id),s=i.sale;open(`<h2>Actual costs · ${escapeText(i.title)}</h2><p>Item revenue ${money(s.price)}. Buy cost ${money(i.buy)} and processing ${money(i.processingCosts)} are retained. Confirm the amounts allocated to this physical unit, using Seller Hub evidence. Leave no unknown amounts as zero.</p>${[['feeValue','Actual marketplace fees'],['shipping','Actual seller postage cost'],['packaging','Packaging cost'],['shippingRevenue','Buyer shipping revenue allocated to this unit']].map(([k,label])=>`<label>${label}<input class="input" id="cost-${k}" type="number" min="0" step="0.01" value="${s[k]??''}"></label>`).join('')}<p>Profit: ${soldEcon(i).profit==null?'Unconfirmed':money(soldEcon(i).profit)}</p><button class="btn primary" onclick="saveImportedCosts(${id})">Confirm actual amounts</button>`);
 };
 window.saveImportedCosts=id=>{try{const costs={};for(const k of ['feeValue','shipping','packaging','shippingRevenue']){const v=$('#cost-'+k).value;costs[k]=v.trim()===''?null:Number(v);}RetroSales.confirmCosts(state.items.find(i=>i.id===id),costs);closeModal();render();}catch(error){alert(error.message);}};
-window.exportWorkspace=()=>{if(!persistState())return;const blob=new Blob([localStorage.getItem(workspaceKey)],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=(demoMode?'retrohq-DEMO-backup-':'retrohq-sandbox-backup-')+today()+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);};
+function downloadBackup(text,name){const blob=new Blob([text],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name+'.json';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);}
+const backupMode=()=>demoMode?'demo':'saved';
+window.exportWorkspace=()=>{if(!persistState())return;const snapshot=JSON.parse(localStorage.getItem(workspaceKey)).state;downloadBackup(RetroBackup.pack(snapshot,backupMode()),'retrohq-'+backupMode()+'-backup-'+today());};
+let restorePreview=null;
+window.openRestore=()=>{
+ if(!workspaceReady||storageFailed||syncingOrders)return alert('Wait for saving or sync to finish before restoring.');
+ restorePreview=null;
+ open('<h2>Restore a backup</h2><p>This replaces the inventory, sales, trade accounts and business settings in this '+backupMode()+' workspace. It does not merge records or change your eBay connection.</p><p>Choose a RetroHQ JSON backup. Nothing changes until you review and confirm.</p><input id="backupFile" class="input" type="file" accept=".json,application/json" onchange="previewBackup(this.files[0])"><div id="backupPreview" role="status"></div><div class="modal-actions"><button class="btn secondary" onclick="closeModal()">Cancel</button><button class="btn secondary" onclick="exportWorkspace()">Download current backup</button><button class="btn secondary" onclick="downloadRecovery()">Download pre-restore copy</button></div>');
+};
+window.previewBackup=async file=>{
+ restorePreview=null;const box=$('#backupPreview');if(!file||!box)return;
+ try{
+  if(file.size>RetroBackup.maxBytes)throw Error('Backup exceeds the 5 MB limit.');
+  const text=await file.text();if($('#backupPreview')!==box||$('#backupFile')?.files[0]!==file)return;
+  const parsed=RetroBackup.parse(text,backupMode());restorePreview={...parsed,text};
+  box.innerHTML='<h3>Backup ready to review</h3><p>'+parsed.items+' items · '+parsed.sales+' recorded sales · '+parsed.accounts+' trade accounts</p><p>Current workspace: '+state.items.length+' items. This will be replaced.</p>'+(parsed.legacy?'<p>Older backup: workspace type inferred from its contents.</p>':'')+'<p>A recovery copy of the current workspace will be saved in this browser first. Export a separate copy if you need protection against loss of browser data.</p><label><input id="restoreAgree" type="checkbox"> I understand this replaces the current workspace, including sales since this backup.</label><p><button class="btn primary" onclick="confirmRestore()">Restore this backup</button></p>';
+ }catch(error){box.textContent=error.message;}
+};
+window.confirmRestore=()=>{
+ if(!restorePreview||!$('#restoreAgree')?.checked)return alert('Review the backup and tick the replacement confirmation first.');
+ if(syncingOrders||!workspaceReady||storageFailed)return;
+ try{
+  const next=RetroBackup.parse(restorePreview.text,backupMode()).state;
+  if(!persistState())return;
+  RetroBackup.restore(localStorage,savedWorkspace,workspaceKey,next);
+  for(const k of RetroBackup.fields)delete state[k];Object.assign(state,next);
+  restorePreview=null;backdrop.classList.add('hidden');modal.innerHTML='';go('inventory');
+  alert('Backup restored. Check your inventory before recording more purchases or syncing orders.');
+ }catch(error){const box=$('#backupPreview');if(box)box.textContent='Restore stopped: '+error.message;}
+};
+window.downloadRecovery=()=>{
+ try{const raw=localStorage.getItem(workspaceKey+'.before-restore');if(!raw)return alert('No pre-restore copy exists in this workspace yet.');downloadBackup(RetroBackup.pack(JSON.parse(raw).state,backupMode()),'retrohq-'+backupMode()+'-before-restore-'+today());}catch(error){alert('Recovery copy could not be read: '+error.message);}
+};
 const sellerCallback=()=>window.location.origin+'/ebay/oauth/callback';
 window.refreshSellerStatus=async()=>{
  if(demoMode)return;

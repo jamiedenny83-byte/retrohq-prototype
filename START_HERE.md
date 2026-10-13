@@ -1,5 +1,7 @@
 # RetroHQ Test 8.4 — use your existing Codespace
 
+**Core trial update:** Backup and practice tools now includes **Restore backup** with preview and a recovery copy. Start with the [five-item buying and inventory trial](docs/CORE_TRIAL.md).
+
 The working GitHub branch is still **`retrohq-test-8.3`**. The app build is **8.4**. There is no need to create a new Codespace or change eBay's callback URL.
 
 **New: offline sales testing.** After updating, click **Try offline sales demo**. It opens fictional stock and sample orders in separate storage, with no eBay sign-in needed. Start with **Paid sale**, then **Review match and import**. Use **Return to saved workspace** to return to your original inventory. See [demo scenarios](docs/TEST_8_4_NOTES.md).
