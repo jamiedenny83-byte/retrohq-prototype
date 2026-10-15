@@ -1,117 +1,44 @@
-# RetroHQ Test 8.2 — Daily Operations + Market Expansion
+# RetroHQ Test 8.4 — use your existing Codespace
 
-Test 8.2 is the first daily-operations build. Test 8.1 remains frozen as the rollback baseline.
+**Core trial update:** Backup and practice tools now includes **Restore backup** with preview and a recovery copy. Start with the [five-item buying and inventory trial](docs/CORE_TRIAL.md).
 
-## Before starting: provider secrets
+The working GitHub branch is still **`retrohq-test-8.3`**. The app build is **8.4**. There is no need to create a new Codespace or change eBay's callback URL.
 
-Keep all API credentials out of ChatGPT and out of the repository.
+**New: offline sales testing.** After updating, click **Try offline sales demo**. It opens fictional stock and sample orders in separate storage, with no eBay sign-in needed. Start with **Paid sale**, then **Review match and import**. Use **Return to saved workspace** to return to your original inventory. See [demo scenarios](docs/TEST_8_4_NOTES.md).
 
-The server reads:
-
-- `PRICECHARTING_API_TOKEN`
-- `EBAY_CLIENT_ID` — eBay App ID / Client ID
-- `EBAY_CLIENT_SECRET` — eBay Cert ID / Client Secret
-- `EBAY_ENV` — optional; defaults to `production`. Use `sandbox` with Sandbox keys.
-
-For Codespaces, store the eBay values as Codespaces secrets so they are exposed to the running Codespace as environment variables. Never commit them to a file.
-
-## Start it
+1. Reopen the same Codespace used for the successful CeX and eBay tests.
+2. Check `git status --short --branch`. Preserve any local edits; do not reset them.
+3. If the checkout is clean and on `retrohq-test-8.3`, run:
 
 ```bash
 git fetch origin
-git switch retrohq-test-8.2
-git pull
+git pull --ff-only origin retrohq-test-8.3
+```
 
-pkill -f "server.py" 2>/dev/null || true
-fuser -k 8006/tcp 2>/dev/null || true
+4. Stop the previous server with Ctrl+C in its terminal, then restart:
 
-export PRICECHARTING_API_TOKEN="YOUR_GENERAL_API_TOKEN_HERE"
-export EBAY_ENV="production"
-
+```bash
+export EBAY_ENV=sandbox
 python3 server.py
 ```
 
-If eBay Codespaces secrets are configured, the terminal should report:
+5. Open the same **private port 8006** browser URL. Refresh and check the **Test 8.4** header.
+6. In Settings, verify the retained seller connection. The displayed callback URL should be unchanged. Then follow the [8.4 Sandbox acceptance checks](docs/TEST_8_4_NOTES.md).
 
-```text
-RetroHQ Test 8.2 — Daily Operations + Market Expansion: http://localhost:8006
-PriceCharting token: loaded
-eBay credentials: loaded · production
-```
+If the branch differs, there are local changes, or the pull cannot fast-forward, inspect the checkout before proceeding. Do not create a replacement Codespace or force a reset.
 
-Open forwarded **port 8006** and hard refresh with **Ctrl + Shift + R**.
+## Existing configuration stays in place
 
-## What is new
+Keep `EBAY_CLIENT_ID`, `EBAY_CLIENT_SECRET`, `EBAY_RUNAME`, `RETROHQ_ADMIN_PIN`, `EBAY_ENV=sandbox`, PriceCharting configuration and optional separate market-data credentials as already tested. Do not paste their values into chat or commit them.
 
-### 1. One authoritative lifecycle
+The eBay callback remains `/ebay/oauth/callback` on the existing Codespace HTTPS origin. The Sandbox refresh token remains at `~/.config/retrohq/ebay_seller_sandbox.json`, outside the repository. This update does not change the OAuth scopes or token handling. Keep port 8006 private.
 
-The item status is now the lifecycle state shown across the workspace. Sale fulfilment no longer overrides the lifecycle bar.
+## Using the import
 
-- Listed → Next Stage opens Record Sale rather than creating a fake sale.
-- Sold → Previous Stage reverses the sale back to Listed while preserving the original sale in history.
-- Packaged / Dispatched / Delivered can move forwards and backwards while keeping sale fulfilment in sync.
-- In-store completed sales can also be reversed without deleting their history.
+In an item's **Listing** tab, link the exact existing eBay SKU/custom label or listing ID. In **Sales**, enter the administrator PIN and **Fetch / resync orders**. Review matched or unmatched lines and confirm physical stock allocation. Details are captured from eBay automatically; no sale needs to be retyped. Fees are evidence, and actual per-item costs must be confirmed before net profit is shown as confirmed.
 
-### 2. Customer returns
+Keep using this browser profile and Codespace address. Export a private inventory backup before clearing browser data. Stock restoration is an explicit physical-return decision; a refund by itself does not put an item back on the shelf.
 
-Customer Return now captures:
+## Continuity and rollback
 
-- Customer email
-- Return reason
-- Refund amount
-- Notes
-
-The original sale is retained in history. The active sale/listing is cleared, the physical item returns to active stock as **Needs repair**, its location becomes **Repair Queue**, and its valuation is marked for review.
-
-### 3. Stock health dashboard
-
-HQ Today now shows:
-
-- Items in stock
-- Current stock market value
-- Capital invested in current stock
-- Current recorded sold value
-- Stock mix by category
-- Games/consoles by system
-- Low-stock signal for systems with three or fewer active items
-
-### 4. Toys and trading cards
-
-**Trading Card** is now a first-class inventory/acquisition category alongside Toy, Video Game, Console and the existing categories.
-
-The live market lookup is deliberately provider-aware: unsupported evidence is shown as missing rather than fabricated.
-
-### 5. Live HQ Market
-
-HQ Market no longer presents the old demonstration movers as if they were live intelligence.
-
-It now has a live provider lookup using the same market endpoint as Buy Check:
-
-- CeX UK evidence
-- PriceCharting reference data and sales volume
-- eBay UK active-listing evidence when credentials/access permit
-
-eBay active listings are labelled as **asking-price evidence**, not sold evidence.
-
-### 6. eBay UK adapter
-
-The server now supports eBay Browse API authentication using server-side OAuth client credentials and searches the **EBAY_GB** marketplace.
-
-RetroHQ records a sample count, low/high active asking prices and median active asking price. These figures are evidence only; they are not silently promoted to completed-sale market value.
-
-## Important valuation rule
-
-PriceCharting is already part of RetroHQ's evidence engine for identity, reference prices and sales volume. It is **not blindly averaged into the UK £ valuation**.
-
-For UK games/consoles, territory-appropriate UK evidence remains primary. For cards and supported collectibles, PriceCharting can carry more weight as the category engine develops, but RetroHQ will keep the source and confidence visible.
-
-## Suggested Test 8.2 pass
-
-1. Open Dashboard and check Stock Health and system counts.
-2. Open the PS3 Game Bundle and test Previous Stage from Sold. It should return to Listed and preserve the old sale in history.
-3. Record a new sale and progress Sold → Packaged → Dispatched → Delivered → Completed, then test reversing stages.
-4. Use Customer Return on a sold item. Enter an email, reason, refund and note. Confirm it returns to stock as **Needs repair**.
-5. Open HQ Market and search a game, console, trading card and toy.
-6. Confirm PriceCharting and CeX evidence behave as before.
-7. Once eBay secrets are configured, confirm HQ Market reports **eBay UK LIVE** and shows active UK asking-price evidence.
-8. Add a Trading Card and Toy through acquisition/inventory and confirm they appear in Stock Health.
+Read [HANDOVER.md](docs/HANDOVER.md) for the next development chat. Read [TEST_8_4_NOTES.md](docs/TEST_8_4_NOTES.md) before rollback. The preserved code branches are `retrohq-rollback-8.3-verified` and `retrohq-rollback-before-8.4`. A code rollback does not roll back business data.

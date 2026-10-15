@@ -38,5 +38,43 @@
 .override-active{outline:1px solid #f59e0b;background:#2a210f!important}.link-button{border:0;background:transparent;color:#a5b4fc;text-decoration:underline;cursor:pointer;padding:0;font:inherit}.link-button:hover{color:#c7d2fe}
 
 /* Test 8.2 — daily operations */
+/* Sales: make the item and next action primary; keep evidence expandable. */
+.sales-panel .list{display:grid;gap:16px;margin-top:20px}.sale-card{margin:0}.sale-card-head{display:flex;justify-content:space-between;gap:20px;align-items:flex-start}.sale-card-head h3{margin:0 0 10px}.sale-price{text-align:right;white-space:nowrap}.sale-price strong{display:block;font-size:24px}.sale-price small{display:block;margin-top:6px;color:#94a3b8}.sale-stock{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:18px}.sale-stock>span{color:#94a3b8}.sale-details{margin-top:20px}.sale-details summary,.workspace-tools summary{cursor:pointer;color:#a5b4fc;padding:8px 0}.sale-details dl{display:grid;grid-template-columns:minmax(120px,1fr) 2fr;gap:12px;overflow-wrap:anywhere}.sale-details dd{margin:0}.sale-details dt{color:#94a3b8}.workspace-tools{margin-bottom:16px}.sales-panel .toolbar{display:flex;flex-wrap:wrap;gap:8px}.sales-panel .notice{margin-top:16px}.sales-panel .notice h4{margin:0 0 8px}.sales-panel .notice p{line-height:1.6}.sale-stock .btn{margin-left:auto}@media(max-width:650px){.sale-stock{align-items:flex-start;flex-direction:column}.sale-stock .btn{margin-left:0}.sale-details dl{grid-template-columns:1fr;gap:6px}.sale-details dd{margin-bottom:10px}}
 .stock-mix{display:flex;gap:8px;flex-wrap:wrap;margin:12px 0 18px}.stock-mix span{padding:9px 11px;border:1px solid #334155;border-radius:10px;background:#111a2a;color:#cbd5e1}.stock-mix strong{color:#fff;margin-right:4px}.system-stock{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.system-stock button{display:grid;grid-template-columns:1fr auto;gap:3px 10px;align-items:center;text-align:left;border:1px solid #334155;border-radius:10px;background:#0e1828;color:#eef4ff;padding:11px 12px;cursor:pointer}.system-stock button:hover{border-color:#6366f1}.system-stock button strong{font-size:18px}.system-stock button small{grid-column:1/-1;color:#fcd34d}.live-market-search{margin-bottom:16px}.market-result-head{display:flex;justify-content:space-between;gap:14px;align-items:center;margin:16px 0 8px;padding:12px;border-radius:10px;background:#111a2a}.market-result-head span{color:#94a3b8}.market-explain .row{align-items:flex-start}.market-explain .row strong{text-align:right;max-width:62%}
 @media(max-width:760px){.system-stock{grid-template-columns:1fr}.market-result-head{align-items:flex-start;flex-direction:column}.market-explain .row{display:block}.market-explain .row strong{display:block;text-align:left;max-width:none;margin-top:5px}}
+
+.quick-actions{display:flex;gap:8px;flex-wrap:wrap;position:sticky;top:0;z-index:10;background:#0c1422;padding:10px 16px;border-bottom:1px solid #29394f}.edit-value{display:block;margin-top:6px;padding:5px 9px;font-size:12px}details.card>summary{cursor:pointer;font-weight:600;padding:8px 0}details.card>.card{margin-top:12px}
+
+/* Clear workspace: light by default, optional original dark palette. */
+html{line-height:1.5;color-scheme:light}html[data-theme="dark"]{color-scheme:dark}
+header{position:relative;z-index:1;height:auto;min-height:82px;padding-top:14px;padding-bottom:14px}
+.quick-actions{z-index:6;padding:12px 28px;box-shadow:0 2px 8px #00000008}#themeToggle{margin-left:auto}aside{z-index:12}
+button:focus-visible,a:focus-visible,summary:focus-visible{outline:3px solid #6366f1;outline-offset:3px}
+button:disabled{opacity:.55;cursor:not-allowed}.btn{min-height:42px}.edit-value{min-height:36px}
+#root>details.card,#root>.card{margin-bottom:16px}label{display:block}label>.input,label>.select,label>textarea{margin-top:6px}
+html[data-theme="light"],html[data-theme="light"] body{background:#f3f5f9;color:#18263b;--line:#d6deea;--panel:#fff;--muted:#52627a}
+html[data-theme="light"] :is(aside,header,.quick-actions,.card,.metric,.action,.modal){background:#fff;color:#18263b;border-color:#d6deea}
+html[data-theme="light"] :is(.hero,.notice,.decision-panel>div,.identity-lock,.smart-breakdown,.lifecycle-strip,.stock-mix span,.market-result-head,.provider-prices span,.cex-price-grid span,.completeness-grid span){background:#edf2fa;color:#18263b;border-color:#d6deea}
+html[data-theme="light"] :is(.input,.select,textarea,.candidate-card,.cex-variant-card,.system-stock button){background:#fff;color:#18263b;border-color:#aab8cd}
+html[data-theme="light"] :is(.muted,header p,.brand small,.hero p,.metric span,.metric small,.action span,.table th,.field label,.candidate-card span,.identity-lock small,.provider-prices small,.cex-price-grid small,.smart-breakdown small,.sale-price small,.sale-stock>span,.sale-details dt,.market-result-head span){color:#52627a}
+html[data-theme="light"] :is(.row,.table th,.table td,.tabs,.bundle-row){border-color:#d6deea}
+html[data-theme="light"] :is(.row button,.stock-mix strong,#menu){color:#18263b}
+html[data-theme="light"] .secondary{background:#e8edf6;color:#243b60}
+html[data-theme="light"] .primary{background:#4f46c7;color:#fff}
+html[data-theme="light"] nav button{color:#52627a}html[data-theme="light"] nav button:is(.active,:hover){background:#eeeaff;color:#4035a4}
+html[data-theme="light"] .click:hover{background:#f0f3fc}
+html[data-theme="light"] .tab{color:#52627a}html[data-theme="light"] .tab.active{color:#4035a4;border-color:#4f46c7}
+html[data-theme="light"] :is(.pill,.cex-grade,.identity-tags span){background:#e8edf6;color:#344968}
+html[data-theme="light"] :is(.pill.good,.margin-green,.completeness-actions .included,.decision-answer.buy){background:#e0f3e9;color:#14633e}
+html[data-theme="light"] :is(.pill.warn,.margin-yellow,.unresolved){background:#fff1ce;color:#785000}
+html[data-theme="light"] :is(.margin-red,.decision-answer.over){background:#fce6e6;color:#a52c36}
+html[data-theme="light"] :is(.goodtext,.table-note,.valuation-summary .row.total strong,.smart-breakdown .row.total strong,.decision-answer.buy strong){color:#14633e}
+html[data-theme="light"] :is(.warntext,.warning-text,.system-stock button small){color:#785000}
+html[data-theme="light"] :is(.dangertext,.smart-breakdown .adjustment strong,.decision-answer.over strong){color:#a52c36}
+html[data-theme="light"] :is(.link-button,.candidate-card small,.sale-details summary,.workspace-tools summary){color:#4035a4}
+html[data-theme="light"] .evidence-details summary{background:#edf2fa;color:#4035a4}
+html[data-theme="light"] .lifecycle-strip span{color:#52627a;border-color:#b9c6d9}html[data-theme="light"] .lifecycle-strip span.done{color:#14633e;border-color:#78af96}html[data-theme="light"] .lifecycle-strip span.current{background:#4f46c7;color:#fff}
+html[data-theme="light"] .override-active{background:#fff1ce!important}
+html[data-theme="light"] .demo{color:#14633e;border-color:#b1cfbf}html[data-theme="light"] .logo{color:#fff}
+html[data-theme="light"] input::placeholder,html[data-theme="light"] textarea::placeholder{color:#63718a;opacity:1}
+@media(max-width:620px){header p{font-size:13px}.demo{display:none}.quick-actions{padding:10px 14px;gap:6px}.quick-actions .btn{padding:9px 10px;font-size:13px}.modal{padding:18px}.hero h2{font-size:24px}.tabs{gap:4px}}
