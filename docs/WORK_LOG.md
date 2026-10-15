@@ -108,3 +108,6 @@ Inspected continuity and current code; preserved/verified rollback retrohq-rollb
 
 ## 2026-10-15 — Clear workspace and quick actions
 Resumed pending UI changes; verified branch remains 314244d and open PR47/15 and roadmap issues50/51. Implemented two tabs, inventory Edit value, explicit item editor, global quick actions, light palette and persistent optional dark mode. Bumped asset version to avoid stale UI. Eleven checkout/item-management tests pass. Isolated Edge desktop/390px browser verifies value/purchase edits after reload, two tabs, contextual sale prefill, quick acquisition, ready-stage navigation and theme persistence; no page errors or phone horizontal overflow. Screenshots reviewed. ResellerAI public homepage reviewed; claims not independently tested. Existing branch/Codespace/OAuth/CeX untouched. Upload result recorded separately.
+
+### Clear workspace upload confirmed
+Implementation 8cf876195bb433606ee1e09df29f52e33ffae66c uploaded to retrohq-test-8.3; tested tree c4efed9ca91ce6999d3b451cc44de4478593c567 verified against remote. All 35 Node tests passed. GitHub Actions 38760733826 and 38760724003 succeeded. Local checkout aligned without reset; user can pull/restart the existing Codespace. Rollback retained; no marketplace publishing enabled. This documentation-only follow-up records completion.
