@@ -68,3 +68,6 @@ Available item workspace has Edit details. item-management.js validates monetary
 
 ## 2026-10-13 — Sale defaults and preparation handoff
 Sale defaults / ready-stage handoff: checkout now defaults each new selection to current RetroHQ marketValue, not listing price; unknown values remain blank and overrides persist. Ready to list offers Continue to listing and Record sale. Existing eBay listing recording is explicitly local-only and cancellation is safe. Same Codespace/branch/OAuth. Rollback retrohq-rollback-before-sale-default at 48d268a8b12aaf6db6f3efcd434ca1c431686537.
+
+## 2026-10-15 — Clear workspace and quick actions
+Current item workspace has two tabs: Item, and Selling & history. Inventory table offers Edit value; item header offers Edit prices & details. Global sticky Record sale / Quick acquisition actions avoid page switching. Light theme defaults, optional remembered dark theme. Prior sale-default commit 314244de41d674e3e3298c1010f335896f6d9e9e passed CI runs 38425578740 and 38425569735. Rollback before this UI batch: retrohq-rollback-before-item-tabs at that exact commit. See RESELLERAI_REVIEW.md for research and proposed future workflow; publishing is not implemented.

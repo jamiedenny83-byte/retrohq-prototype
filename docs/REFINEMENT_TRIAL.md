@@ -19,3 +19,6 @@ Open any available stock record and choose Edit details. Correct purchase price,
 Processing is now Acquired → Preparing → Ready to list. Existing Needs cleaning/testing/repair/photos/pricing statuses are displayed in Preparing without rewriting history. Listed and sold stock cannot move forward/back through processing. Record sale/import controls Sold or Completed; dispatch steps and physical returns are in the item Sales tab. Dispatch progress is local only, not an eBay update.
 
 At Ready to list, choose Continue to listing to record an existing eBay listing locally, or Record sale for a paid in-store/other sale. Cancel leaves listing state untouched. Processing never marks an item sold.
+
+## Clear workspace trial
+Inventory: choose Edit value directly, change market/purchase price and save; reload to verify. Item header also has Edit prices & details. Item holds preparation/condition, photo and notes. Selling & history holds listing, sale and expandable buying/evidence/timeline. Existing links to old tabs route into these two tabs. Record sale and Quick acquisition are always available above the page; item-context sale selects that stock record. Light mode is default; Dark mode remembers your device preference. Check on laptop and phone.

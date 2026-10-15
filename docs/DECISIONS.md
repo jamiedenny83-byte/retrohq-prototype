@@ -53,3 +53,6 @@ User requested purchase/value editing and fewer processing stages with no manual
 
 ## 2026-10-13 — Sale defaults and preparation handoff
 User clarified sale default must be current RetroHQ market value with override; this supersedes listed-price defaults. Preparation still stops at Ready to list, but provides explicit listing/sale handoff. Recording an existing eBay listing does not publish. Sold remains controlled by checkout/import.
+
+## 2026-10-15 — Clear workspace and quick actions
+User requests fewer clicks, more obvious value editing and a lighter, easier-to-read desktop. Use two item tabs with secondary information expandable; retain purchase evidence, buying snapshot and timeline. Global quick actions; contextual sale selection. Light default with dark option. ResellerAI research informs a proposed unified review step; no listing-write integration is implied or enabled.
