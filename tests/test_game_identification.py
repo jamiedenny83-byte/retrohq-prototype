@@ -93,6 +93,38 @@ class GameIdentificationTests(unittest.TestCase):
         self.assertEqual(result["mode"], "matched")
         self.assertEqual(result["intent"]["type"], "software")
 
+    def test_cex_title_typography_across_games(self):
+        pairs=[("The Incredible Hulk", "Incredible Hulk"),
+               ("The Getaway", "Getaway, The"),
+               ("The Simpsons Hit & Run", "Simpsons: Hit and Run"),
+               ("Tony Hawk's Underground", "Tony Hawks Underground")]
+        for wanted, actual in pairs:
+            with self.subTest(wanted=wanted):
+                intent={"type":"software", "platform":"PlayStation 2", "gameTitle":wanted}
+                self.assertIsNotNone(server._cex_candidate_score(actual,"Playstation2 Software",wanted,intent,{}))
+                self.assertIsNone(server._cex_candidate_score(actual,"Playstation3 Software",wanted,intent,{}))
+
+    def test_cex_normalised_titles_reject_different_games(self):
+        intent={"type":"software", "platform":"PlayStation 2", "gameTitle":"The Incredible Hulk"}
+        for title in ("Incredible Hulk Ultimate Destruction", "Incredible Hulk 2", "Hulk"):
+            self.assertIsNone(server._cex_candidate_score(title,"Playstation2 Software","hulk",intent,{}))
+        intent["gameTitle"]="Silent Hill 2"
+        self.assertIsNotNone(server._cex_candidate_score("Silent Hill 2 (Platinum)","Playstation2 Software","silent hill 2",intent,{}))
+        self.assertIsNone(server._cex_candidate_score("Silent Hill 3","Playstation2 Software","silent hill 2",intent,{}))
+
+    def test_cex_hulk_selection_retains_gbp_confirmation(self):
+        intent={"type":"software", "platform":"PlayStation 2", "gameTitle":"The Incredible Hulk"}
+        hit={"boxName":"Incredible Hulk", "categoryName":"Playstation2 Software",
+             "boxId":"5060138437760", "sellPrice":12}
+        with patch.object(server,"urlopen",return_value=FakeResponse({"results":[{"hits":[hit]}]})):
+            result=server.cex_search("The Incredible Hulk PS2",intent)
+        self.assertEqual(result["status"],"CeX variant needed")
+        with patch.object(server,"cex_detail",return_value=hit):
+            result=server.cex_search("The Incredible Hulk PS2",intent,selected_product_id=hit["boxId"])
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["retail"],12)
+        self.assertTrue(result["selectedByUser"])
+
     def test_cex_catalogue_platform_labels_preserve_exact_platform(self):
         # CeX sometimes reports category slugs without a space before the generation.
         self.assertEqual(server._cex_platforms("Silent Hill 2 playstation2-software"),

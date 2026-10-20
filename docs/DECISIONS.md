@@ -56,3 +56,6 @@ User clarified sale default must be current RetroHQ market value with override; 
 
 ## 2026-10-15 — Clear workspace and quick actions
 User requests fewer clicks, more obvious value editing and a lighter, easier-to-read desktop. Use two item tabs with secondary information expandable; retain purchase evidence, buying snapshot and timeline. Global quick actions; contextual sale selection. Light default with dark option. ResellerAI research informs a proposed unified review step; no listing-write integration is implied or enabled.
+
+## 2026-10-20 — CeX catalogue title normalisation
+User reports multiple identified games fail UK valuation. Distinguish PriceCharting identity confirmation from CeX UK price confirmation in UI. Normalise conservative catalogue typography across titles, while retaining platform, meaningful title words and explicit CeX edition confirmation. Do not invent UK value or convert US reference prices.

@@ -71,3 +71,6 @@ Sale defaults / ready-stage handoff: checkout now defaults each new selection to
 
 ## 2026-10-15 — Clear workspace and quick actions
 Current item workspace has two tabs: Item, and Selling & history. Inventory table offers Edit value; item header offers Edit prices & details. Global sticky Record sale / Quick acquisition actions avoid page switching. Light theme defaults, optional remembered dark theme. Prior sale-default commit 314244de41d674e3e3298c1010f335896f6d9e9e passed CI runs 38425578740 and 38425569735. Rollback before this UI batch: retrohq-rollback-before-item-tabs at that exact commit. See RESELLERAI_REVIEW.md for research and proposed future workflow; publishing is not implemented.
+
+## 2026-10-20 — CeX catalogue title normalisation
+CeX game matching now normalises leading/trailing The, apostrophes, ampersands and bracketed age ratings. Title-only search uses the normalised title. Meaningful extra subtitle/sequel words are rejected; known edition labels still require confirmation. Live Hulk PS2 record 5060138437760 confirmed GBP12 benchmark on 2026-10-20; Getaway and Simpsons Hit and Run candidates also verified live. No claim all title mismatches are fixed. Rollback retrohq-rollback-before-cex-title-normalisation at eb5893c35f37f138527c4927b1289bae0d598966.

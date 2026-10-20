@@ -244,6 +244,17 @@ def _cex_category_text(hit):
     return " ".join(str(hit[key]) for key in keys if hit.get(key) not in (None,""))
 
 
+def _cex_game_words(title):
+    """Normalise catalogue typography, retaining meaningful title/sequel words."""
+    text=str(title or "").lower().replace("’", "").replace("'", "").replace("&", " and ")
+    text=re.sub(r"\((?:3|7|12|15|16|18)\)", " ", text)
+    text=re.sub(r"\b(?:ps|playstation)\s*[2345]\b", " ", text)
+    words=normalize_words(text)
+    if words and words[0]=="the": words=words[1:]
+    if words and words[-1]=="the": words=words[:-1]
+    return words
+
+
 def _cex_candidate_score(title, category, search_query, intent, identity, grade=None):
     hay=(title+" "+category).lower(); qwords=set(normalize_words(search_query)); words=set(normalize_words(title+" "+category))
     score=2*len(qwords & words)
@@ -255,9 +266,14 @@ def _cex_candidate_score(title, category, search_query, intent, identity, grade=
         if expected and (expected not in observed or observed!={expected}):
             return None
         # Match the game TITLE, never merely the shared platform and number.
-        game_words=set(normalize_words(intent.get("gameTitle") or search_query))
-        name_words=set(normalize_words(title))
+        game_words=set(_cex_game_words(intent.get("gameTitle") or search_query))
+        name_words=set(_cex_game_words(title))
         if not game_words or not game_words.issubset(name_words): return None
+        # Extra title words may mean a different game, not an edition.
+        # Named catalogue editions still require the existing user confirmation.
+        edition_words={"platinum", "essentials", "special", "limited", "collectors",
+                       "collector", "edition", "directors", "cut", "steelbook"}
+        if name_words-game_words-edition_words: return None
         if any(x in title.lower() for x in (" console", " system")): return None
         score+=18
         if " ".join(normalize_words(title)).startswith(" ".join(normalize_words(intent.get("gameTitle") or ""))):
@@ -349,6 +365,8 @@ def cex_search(query, intent=None, limit=40, grade=None, identity=None, selected
     # CeX's UK catalogue search is strongest with the game title alone.
     # Filter candidates by PS2/PS3/etc *after* searching, never by console keyword.
     search_query=aliases.get(platform,query) if intent.get("type")=="hardware" else (intent.get("gameTitle") or query)
+    if intent.get("type")=="software":
+        search_query=" ".join(_cex_game_words(search_query))
     attrs=identity.get("attributes") or {}
     for val in (attrs.get("revision"),attrs.get("storage"),attrs.get("colour")):
         if val and val.lower() not in search_query.lower(): search_query+=" "+val
