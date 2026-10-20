@@ -114,3 +114,6 @@ Implementation 8cf876195bb433606ee1e09df29f52e33ffae66c uploaded to retrohq-test
 
 ## 2026-10-20 — CeX catalogue title normalisation
 Inspected actual clean branch, continuity and open PR47/15 and issues50/51. Preserved and verified rollback at eb5893c. Live CeX showed Incredible Hulk without The, causing prior subset rejection. Updated search/scoring normalisation and added 3 regression tests covering 4 title spellings, wrong platforms, different game/sequel rejection and confirmed GBP flow. Full Python suite: 52 run, 51 passed, one POSIX-only Windows skip (initial restricted run lacked localhost permission; rerun passed). Live CeX candidates verified for Hulk/Getaway/Simpsons PS2; Hulk confirmation returned GBP12. Clarified PriceCharting label and bumped asset version. No OAuth/Codespace configuration changed. Upload evidence follows.
+
+### CeX fix upload confirmed
+Implementation 42bc80b30a95c9d2770089993ccbeb0f0e614c19 uploaded to retrohq-test-8.3. Remote tree ff0e30c2ae491a2e2fbf3fd05b24c0e2b2a4fb6c matched tested files. GitHub checks 39439132104 and 39439123424 succeeded. Existing Codespace requires pull and server restart. This documentation-only follow-up records completion.
