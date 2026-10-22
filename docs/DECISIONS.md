@@ -59,3 +59,6 @@ User requests fewer clicks, more obvious value editing and a lighter, easier-to-
 
 ## 2026-10-20 — CeX catalogue title normalisation
 User reports multiple identified games fail UK valuation. Distinguish PriceCharting identity confirmation from CeX UK price confirmation in UI. Normalise conservative catalogue typography across titles, while retaining platform, meaningful title words and explicit CeX edition confirmation. Do not invent UK value or convert US reference prices.
+
+## 2026-10-22 — Operations and acquisition
+User authorises previously deferred Flipwise-inspired operations, one-screen acquisition and reduced confirmations. One clear exact game/platform match may auto-load CeX; no edition ambiguity is bypassed. Listings remain local records/recommendations. Unknown costs and return histories are excluded from confirmed profitability. On 2026-10-22 user authorises read-only production eBay listing/order integration and opportunity research; keep it isolated from Sandbox. No marketplace writes or automated purchases requested.

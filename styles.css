@@ -78,3 +78,7 @@ html[data-theme="light"] .override-active{background:#fff1ce!important}
 html[data-theme="light"] .demo{color:#14633e;border-color:#b1cfbf}html[data-theme="light"] .logo{color:#fff}
 html[data-theme="light"] input::placeholder,html[data-theme="light"] textarea::placeholder{color:#63718a;opacity:1}
 @media(max-width:620px){header p{font-size:13px}.demo{display:none}.quick-actions{padding:10px 14px;gap:6px}.quick-actions .btn{padding:9px 10px;font-size:13px}.modal{padding:18px}.hero h2{font-size:24px}.tabs{gap:4px}}
+
+.acquire-actions{position:sticky;bottom:-24px;background:var(--panel,#172033);padding:14px;margin:12px -4px -12px;border-top:1px solid var(--line,#334155);z-index:4}.action-required{padding:14px;border:2px solid #7661e8;border-radius:12px;background:#eeeaff;color:#302267;margin:12px 0}.action-required .candidate-card,.cex-select{font-weight:700}.candidate-card small,.cex-select{background:#4f46c7;color:white;padding:10px;border-radius:8px}.action-required .cex-variant-card{border:2px solid #7661e8}.evidence-details{margin:12px 0}
+
+html[data-theme="light"] :is(.buy-grade-card,.grade-hint){background:#edf2fa;color:#18263b;border-color:#c9d5e6}html[data-theme="light"] :is(.counter-search>label,.buy-grade-card label){color:#344968}html[data-theme="light"] :is(.quality-buttons button,.accessory-checks label){background:#fff;color:#344968;border-color:#aab8cd}html[data-theme="light"] .quality-buttons button.active{background:#4f46c7;color:white}html[data-theme="light"] .grade-hint small{color:#785000}

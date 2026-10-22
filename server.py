@@ -902,6 +902,17 @@ class H(SimpleHTTPRequestHandler):
                                  "prices":pr,"salesVolume":pc.get("salesVolume"),"productId":pc.get("id"),
                                  "detail":f"Matched: {pc.get('product','Unknown')} — {pc.get('console','Unknown')}. " + " · ".join(parts)})
                 cex = cex_search(q, lookup.get("intent") or infer_intent(q), grade=cex_grade, identity=identity, selected_product_id=cex_id)
+                # One exact title/platform match after catalogue identity confirmation
+                # needs no second user click. Editions and ambiguous records still do.
+                variants=cex.get("variants") or []
+                if (not cex_id and not p.get("cexChoose") and len(variants)==1 and identity.get("type")=="software"
+                    and identity.get("confirmedProduct") and
+                    _cex_game_words(variants[0].get("product"))==_cex_game_words(identity["confirmedProduct"])):
+                    cex=cex_search(q,lookup.get("intent") or infer_intent(q),grade=cex_grade,
+                                   identity=identity,selected_product_id=variants[0]["productId"])
+                    if cex.get("ok"):
+                        cex["selectedByUser"]=False
+                        cex["matchQuality"]="Single exact title and platform match"
                 if cex.get("ok"):
                     cparts=[]
                     if cex.get("retail") is not None: cparts.append(f"retail £{cex['retail']:.2f}")

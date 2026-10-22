@@ -117,3 +117,6 @@ Inspected actual clean branch, continuity and open PR47/15 and issues50/51. Pres
 
 ### CeX fix upload confirmed
 Implementation 42bc80b30a95c9d2770089993ccbeb0f0e614c19 uploaded to retrohq-test-8.3. Remote tree ff0e30c2ae491a2e2fbf3fd05b24c0e2b2a4fb6c matched tested files. GitHub checks 39439132104 and 39439123424 succeeded. Existing Codespace requires pull and server restart. This documentation-only follow-up records completion.
+
+## 2026-10-22 — Operations and acquisition
+Resumed preserved operations edits and reran browser trial successfully. Rollback retrohq-rollback-before-operations remains at 36eba0e. Implemented previous requested workflow and local operations; full tests described in handover. Phone screenshot inspected and light-form contrast corrected. Sandbox session tested with mocked API only, not a real paid order. Production credentials are not yet configured (user confirmed). This batch is uploaded before separate live connector work.
