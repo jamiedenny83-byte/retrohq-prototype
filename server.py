@@ -303,6 +303,36 @@ def _cex_game_words(title):
     return words
 
 
+def _cex_match_words(title):
+    """Remove only known catalogue packaging labels, keeping title/sequel words.
+
+    Full provider labels remain visible and must be explicitly selected. This
+    helper is deliberately NOT used by the automatic exact-match shortcut.
+    """
+    text=str(title or "")
+    suffix=r"(?:unboxed|boxed|mint|(?:w/|with|\+)\s*manual|(?:w/o|without|no)\s*manual)"
+    while re.search(r",\s*"+suffix+r"\s*$",text,re.I):
+        text=re.sub(r",\s*"+suffix+r"\s*$","",text,flags=re.I)
+    text=re.sub(r"\s*(?:,|\+)?\s*manual\s*$","",text,flags=re.I) if re.search(r"\)\s*\+\s*manual\s*$",text,re.I) else text
+    text=re.sub(r"\((?:standard blue dvd case|2 disc cardboard case|european packaging|bbfc uk|pegi uk)\)"," ",text,flags=re.I)
+    words=_cex_game_words(text)
+    # Verified title alias; do not globally remove publisher names from games.
+    if words==['konami','krazy','racers']:words=['krazy','racers']
+    return words
+
+
+def cex_game_grade(title):
+    """CeX's game condition/completeness label; never inferred from shop condition."""
+    text=str(title or "")
+    if re.search(r",\s*mint\s*$",text,re.I):return "Mint"
+    if re.search(r",\s*unboxed\s*$",text,re.I):return "Unboxed"
+    if re.search(r",\s*boxed\s*$",text,re.I):
+        if re.search(r"(?:w/o|without|no)\s*manual",text,re.I):return "Boxed - without manual"
+        if re.search(r"(?:w/|with|\+)\s*manual",text,re.I):return "Boxed - with manual"
+        return "Boxed"
+    return None
+
+
 def _cex_candidate_score(title, category, search_query, intent, identity, grade=None):
     hay=(title+" "+category).lower(); qwords=set(normalize_words(search_query)); words=set(normalize_words(title+" "+category))
     score=2*len(qwords & words)
@@ -314,13 +344,13 @@ def _cex_candidate_score(title, category, search_query, intent, identity, grade=
         if expected and (expected not in observed or observed!={expected}):
             return None
         # Match the game TITLE, never merely the shared platform and number.
-        game_words=set(_cex_game_words(intent.get("gameTitle") or search_query))
-        name_words=set(_cex_game_words(title))
+        game_words=set(_cex_match_words(identity.get("confirmedProduct") or intent.get("gameTitle") or search_query))
+        name_words=set(_cex_match_words(title))
         if not game_words or not game_words.issubset(name_words): return None
         # Extra title words may mean a different game, not an edition.
         # Named catalogue editions still require the existing user confirmation.
         edition_words={"platinum", "essentials", "special", "limited", "collectors",
-                       "collector", "edition", "directors", "cut", "steelbook"}
+                       "collector", "edition", "ed", "directors", "cut", "steelbook"}
         if name_words-game_words-edition_words: return None
         if any(x in title.lower() for x in (" console", " system")): return None
         score+=18
@@ -344,7 +374,7 @@ def _cex_candidate_score(title, category, search_query, intent, identity, grade=
     matches,conflicts=cex_identity_quality(title,identity)
     if conflicts: return None
     score+=8*len(matches)
-    if grade:
+    if grade and intent.get("type")!="software":
         actual=cex_grade_from_title(title)
         if actual==grade: score+=12
         elif actual: return None
@@ -423,7 +453,7 @@ def cex_search(query, intent=None, limit=40, grade=None, identity=None, selected
     def exact_result(h, selected=False):
         title=str(_first(h,"boxName","name","title","productName") or "Unknown")
         category=str(_first(h,"categoryName","categoryFriendlyName","category","superCatName") or "")
-        actual=cex_grade_from_title(title); sc=_cex_candidate_score(title,_cex_category_text(h),search_query,intent,identity,actual)
+        actual=cex_game_grade(title) if intent.get("type")=="software" else cex_grade_from_title(title); sc=_cex_candidate_score(title,_cex_category_text(h),search_query,intent,identity,actual)
         if sc is None: return {"ok":False,"status":"CeX selection rejected","detail":"The selected CeX catalogue record conflicts with the locked RetroHQ identity."}
         prices=_cex_prices(h)
         return {"ok":True,"score":sc,"product":title,"productId":_first(h,"boxId","box_id","objectID","id"),
@@ -507,8 +537,8 @@ def cex_search(query, intent=None, limit=40, grade=None, identity=None, selected
             nm=str(_first(cand,"boxName","name","title","productName") or ""); pid=str(_first(cand,"boxId","box_id","objectID","id") or "")
             if not pid or pid in seen: continue
             seen.add(pid); prices=_cex_prices(cand)
-            variants.append({"productId":pid,"grade":cex_grade_from_title(nm) or "CeX variant","product":nm,**prices})
-            if len(variants)>=6: break
+            variants.append({"productId":pid,"grade":(cex_game_grade(nm) if intent.get("type")=="software" else cex_grade_from_title(nm)) or "CeX variant","product":nm,**prices})
+            if len(variants)>=(16 if intent.get("type")=="software" else 6): break
         if len(variants)>1 or (intent.get("type")=="software" and variants):
             return {"ok":False,"status":"CeX variant needed","detail":"Confirm the exact CeX game edition before adopting its UK retail value." if intent.get("type")=="software" else "Multiple credible CeX catalogue records match the locked product. Choose the exact CeX record to continue.","variants":variants}
     return exact_result(ranked[0][1],False)
@@ -610,8 +640,9 @@ def pc_call(url, params):
         finally: _pc_last_call = time.monotonic()
 
 def normalize_words(s):
-    import re
-    return [w for w in re.sub(r"[^a-z0-9]+"," ",(s or "").lower()).split() if w]
+    import re, unicodedata
+    text=unicodedata.normalize("NFKD",s or "").encode("ascii","ignore").decode().lower()
+    return [w for w in re.sub(r"[^a-z0-9]+"," ",text).split() if w]
 
 _HARDWARE_TERMS = {
     "console", "system", "handheld", "slim", "super", "fat", "phat", "pro", "elite",
