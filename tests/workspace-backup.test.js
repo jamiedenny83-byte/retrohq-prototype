@@ -1,6 +1,15 @@
 const {test}=require('node:test'),assert=require('node:assert/strict');
 const B=require('../workspace-backup'),S=require('../sales-sync'),D=require('../demo-sales');
 const sample=()=>D.seed({settings:{offerPct:45,storeCreditBonus:15,greenMargin:45,yellowMargin:30,fees:{eBay:{type:'percent',value:12.8}}}});
+
+test('production sale backup retains its separate duplicate-protection key',()=>{
+ const state=sample(),key=JSON.stringify(['ebay','production','LIVE-1','LINE-1']);
+ state.items[0].sale={price:80,date:'2026-10-23',productionKey:key};
+ state.liveEbay={listings:[],orders:[],ledger:[{key,imported:{orderId:'LIVE-1',lineItemId:'LINE-1',quantity:1,price:80,date:'2026-10-23',sku:'',listingId:'123',eligible:true,paymentStatus:'PAID',cancelState:'NONE',refundDetected:false,currency:'GBP'},itemIds:[1]}]};
+ assert.deepEqual(B.parse(B.pack(state,'demo'),'demo').state,state);
+ state.liveEbay.ledger=[];
+ assert.throws(()=>B.parse(B.pack(state,'demo'),'demo'));
+});
 test('backup restores purchase details and complete duplicate ledger',()=>{
  const state=sample();S.ingest(state,D.orders('paid'));S.apply(state,state.ebaySync.lines[0].key,[1]);
  const parsed=B.parse(B.pack(state,'demo'),'demo');assert.deepEqual(parsed.state,state);assert.equal(parsed.sales,1);

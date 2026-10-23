@@ -4,6 +4,7 @@ from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 from pathlib import Path
 import json, os, time, threading, re, base64, statistics
+import ebay_live
 import ebay_seller
 import item_identification
 
@@ -101,6 +102,7 @@ def ebay_browse_search(query, limit=12):
             items.append({
                 "itemId":x.get("itemId"),"title":x.get("title"),"price":value,"currency":currency,
                 "condition":x.get("condition"),"buyingOptions":x.get("buyingOptions",[]),
+                "shipping":browse_shipping(x),"checkedAt":__import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
                 "itemWebUrl":x.get("itemWebUrl"),"seller":(x.get("seller") or {}).get("username")
             })
         return {
@@ -110,10 +112,56 @@ def ebay_browse_search(query, limit=12):
             "lowAsking":min(prices) if prices else None,"highAsking":max(prices) if prices else None
         }
     except HTTPError as e:
-        detail=e.read().decode(errors="ignore")[:700]
-        return {"ok":False,"status":f"eBay Browse HTTP {e.code}","detail":detail}
+        return {"ok":False,"status":f"eBay Browse HTTP {e.code}","detail":"Production Browse access may require eBay approval. Check application permissions in the developer portal."}
     except Exception as e:
         return {"ok":False,"status":"eBay Browse unavailable","detail":str(e)}
+
+def browse_shipping(item):
+    # Unknown/calculated postage remains unknown; never substitute zero.
+    amounts=[]
+    for option in item.get("shippingOptions") or []:
+        cost=option.get("shippingCost") or {}
+        value=_num(cost.get("value"))
+        if cost.get("currency")=="GBP" and value is not None and value>=0:
+            amounts.append(value)
+    return min(amounts) if amounts else None
+
+
+def opportunity_cex(query, product_id=None):
+    from datetime import datetime, timezone
+    if not query or len(query)>180 or (product_id and len(product_id)>80):
+        return {"ok":False,"status":"Enter an exact product / platform query."}
+    if product_id:
+        detail=cex_detail(product_id)
+        if not detail:return {"ok":False,"status":"CeX record unavailable."}
+        prices=_cex_prices(detail)
+        cash=prices.get("cash") if prices.get("cashSource") in ("cex-listed","cex-calculated") else None
+        return {"ok":cash is not None,"status":"Cash quote checked" if cash is not None else "CeX cash quote unavailable",
+                "productId":str(_first(detail,"boxId","box_id","objectID","id") or product_id),
+                "product":str(_first(detail,"boxName","name","title","productName") or ""),
+                "cash":cash,"cashSource":prices.get("cashSource"),"category":_cex_category_text(detail),"verified":cash is not None,
+                "checkedAt":datetime.now(timezone.utc).isoformat()}
+    # This is a catalogue chooser, not an automatic identity match. Return the
+    # actual candidates across games/hardware/accessories for explicit review.
+    global _cex_last_call
+    payload=json.dumps({"requests":[{"indexName":"prod_cex_uk","params":urlencode({"query":query,"hitsPerPage":20})}]}).encode()
+    request=Request(CEX_SEARCH,data=payload,headers={"Content-Type":"application/json","User-Agent":"RetroHQ-Internal-PoC/0.8.1 (+internal testing)"},method="POST")
+    with _cex_lock:
+        wait=1.05-(time.monotonic()-_cex_last_call)
+        if wait>0:time.sleep(wait)
+        try:
+            with urlopen(request,timeout=12) as response:
+                raw=response.read(4_000_001)
+            if len(raw)>4_000_000:raise ValueError("Response too large")
+            data=json.loads(raw)
+        finally:_cex_last_call=time.monotonic()
+    variants=[]
+    for hit in ((data.get("results") or [{}])[0].get("hits") or []):
+        product_id=_first(hit,"boxId","box_id","objectID","id")
+        if product_id:variants.append({"productId":str(product_id),"product":str(_first(hit,"boxName","name","title","productName") or ""),"category":_cex_category_text(hit),"grade":cex_grade_from_title(str(_first(hit,"boxName","name") or ""))})
+    return {"ok":bool(variants),"candidates":variants,"status":"Choose the exact CeX record" if variants else "No CeX catalogue candidates"}
+
+
 
 def _first(d, *keys):
     for k in keys:
@@ -798,7 +846,7 @@ class H(SimpleHTTPRequestHandler):
         return str(candidate)
     def log_message(self, format, *args):
         # The OAuth callback query contains a one-use authorization code.
-        if "/ebay/oauth/callback" in self.path:
+        if "/ebay/oauth/callback" in self.path or "/ebay/live/callback" in self.path:
             return
         super().log_message(format, *args)
     def send_json(self, body, status=200):
@@ -826,7 +874,7 @@ class H(SimpleHTTPRequestHandler):
             # Keep this port private; Seller administration retains its own PIN.
             result = item_identification.identify_photo(payload.get("image"))
             self.send_json(result,200 if result.get("ok") else 400); return
-        if u.path not in ("/api/ebay-seller/start", "/api/ebay-seller/test", "/api/ebay-seller/orders"):
+        if u.path not in ("/api/ebay-live/start", "/api/ebay-live/snapshot", "/api/ebay-seller/start", "/api/ebay-seller/test", "/api/ebay-seller/orders"):
             self.send_json({"ok": False, "status": "Not found."}, 404); return
         if self.headers.get("X-RetroHQ-Action") != "seller-oauth" or self.headers.get("Sec-Fetch-Site", "same-origin") != "same-origin":
             self.send_json({"ok": False, "status": "Request blocked."}, 403); return
@@ -839,7 +887,11 @@ class H(SimpleHTTPRequestHandler):
             self.send_json({"ok": False, "status": "Invalid request."}, 400); return
         if not isinstance(payload, dict) or not ebay_seller.admin_pin_valid(payload.get("pin")):
             self.send_json({"ok": False, "status": ebay_seller.admin_pin_error()}, 403); return
-        if u.path == "/api/ebay-seller/start":
+        if u.path == "/api/ebay-live/start":
+            result = ebay_live.start_authorisation()
+        elif u.path == "/api/ebay-live/snapshot":
+            result = ebay_live.snapshot()
+        elif u.path == "/api/ebay-seller/start":
             result = ebay_seller.start_authorisation()
         elif u.path == "/api/ebay-seller/orders":
             result = ebay_seller.list_orders()
@@ -849,6 +901,18 @@ class H(SimpleHTTPRequestHandler):
 
     def do_GET(self):
         u = urlparse(self.path)
+        if u.path == "/api/ebay-live/status":
+            self.send_json(ebay_live.configuration()); return
+        if u.path == "/ebay/live/callback":
+            q=parse_qs(u.query)
+            try:result=ebay_live.complete_authorisation((q.get("state") or [""])[0],(q.get("code") or [None])[0],(q.get("error") or [None])[0])
+            except (OSError,ValueError,TypeError,KeyError):result={"ok":False}
+            self.send_response(303);self.send_header("Location","/?ebayLive="+("connected" if result.get("ok") else "error"));self.send_header("Cache-Control","no-store");self.send_header("Referrer-Policy","no-referrer");self.send_header("Content-Length","0");self.end_headers();return
+        if u.path == "/api/opportunity-cex":
+            q=parse_qs(u.query)
+            try:result=opportunity_cex((q.get("q") or [""])[0],(q.get("id") or [None])[0])
+            except (ValueError,TypeError,OSError,URLError):result={"ok":False,"status":"CeX quote unavailable; keep the previous evidence."}
+            self.send_json(result);return
         if u.path == "/api/photo-status":
             self.send_json(item_identification.photo_status()); return
         if u.path == "/ebay/oauth/callback":

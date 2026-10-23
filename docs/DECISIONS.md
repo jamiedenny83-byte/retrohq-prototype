@@ -1,5 +1,11 @@
 # RetroHQ decision record
 
+## 2026-10-23 — Production reads and evidence-gated sourcing
+
+User explicitly authorises finishing/uploading the isolated production read and resale-opportunity work. This supersedes the historical Sandbox-only scope in AGENTS/older issues; no listing writes, automatic purchases, main merge, branch rename or new Codespace. Production has separate settings/RuName/callback/cache/token store while EBAY_ENV may stay sandbox. Existing physical stock must be explicitly linked; remote listings never imply zero-cost acquisitions. Production returns retain their duplicate ledger. Manual sync now; server/shared storage and unattended multi-channel selling remain later work.
+
+Top10 is a per-category ranking of reviewed real offers, not an invented or guaranteed bargain feed. Exact platform/condition/completeness and direct CeX cash quote are required along with every landed cost and fresh availability confirmation. Use a configurable lower cash-profit threshold for reseller trades. When production Browse lacks credentials/access, show the real limitation and allow manual eBay offer research; do not treat Sandbox data or unverified Vinted access as live opportunities.
+
 ## 2026-10-13 — buying and inventory first; clearer screens
 - User clarified that eBay and crosslisting remain central development priorities. Establish daily use of the core system, then build marketplace selling on that same inventory; do not interpret the core-first sequence as deprioritising marketplace integration.
 - User wants RetroHQ usable for buying and physical stock management now; eBay remains important but optional and must not block that workflow. Prioritise acquisition, valuation, locations, processing, inventory accuracy and recoverable records before more marketplace breadth.

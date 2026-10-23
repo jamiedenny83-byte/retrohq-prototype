@@ -1,5 +1,7 @@
 # RetroHQ Test 8.4 — use your existing Codespace
 
+**Production read / resale opportunity update:** Follow [PRODUCTION_TRIAL.md](docs/PRODUCTION_TRIAL.md) for the new screens, exact setup and tests. The existing Codespace/branch/private port and Sandbox settings stay intact. Header now reads PRODUCTION READ / OPERATIONS. Production consent and approved market access are still required; no marketplace writes are implemented.
+
 **Core trial update:** Backup and practice tools now includes **Restore backup** with preview and a recovery copy. Start with the [five-item buying and inventory trial](docs/CORE_TRIAL.md).
 
 The working GitHub branch is still **`retrohq-test-8.3`**. The app build is **8.4**. There is no need to create a new Codespace or change eBay's callback URL.

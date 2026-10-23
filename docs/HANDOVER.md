@@ -1,5 +1,19 @@
 # RetroHQ — start here for the next development chat
 
+## 2026-10-23 — Final local verification before upload
+
+Final application checks: 51 Node tests passed; Python61 run,60 passed/one Windows POSIX-only skip; JavaScript syntax and diff whitespace checks passed. Production/mock browser trial passed again after review, including navigation during an offer request; existing operations acquisition/lot/cost/report/backup/Sandbox-session/mobile regression also passed. Final backup review added malformed listing/order rejection and exact penny revenue consistency in both current and returned allocations; Node regressions passed. Live public CeX cash read smoke checked a game, console and PS4 V2 B controller; no live purchase or production seller acceptance. Upload target remains retrohq-test-8.3 with expected parent cad4d922 and existing rollback; final remote SHA/CI evidence to be appended after verification.
+
+## 2026-10-23 — Production read and opportunity trial
+
+The previously unfinished production batch is implemented for testing. Read **PRODUCTION_TRIAL.md** for exact existing-Codespace update, separate production keyset/RuName/scopes/secrets, stock linking, order/refund acceptance, resale research and rollback steps. Only Sandbox is configured; no real production seller or Browse acceptance claimed. New sidebar entries: Production eBay; Resale opportunities. Exact listing AND variation SKU; independent ledger; explicit ended-listing order matching; changed/refunded order review and physical-return tombstones. Atomic saves and bidirectional backup consistency guard stock. Top 10 per Games/Consoles/Accessories uses freshly checked exact CeX cash and all landed costs, never retail/voucher or unknown-cost zero. No fabricated deals; manual genuine eBay offers supported when approved Browse is unavailable.
+
+Local evidence: 51 Node passed; 60 Python run, 59 passed / one Windows POSIX skip. Isolated browser production/stock/refund/cost/ranking/backup/failure/mobile/demo acceptance passed. Live public CeX chooser/detail smoke verified game, console and PS4 controller cash quotes; these are quote checks, not purchase opportunities or stock matches. Final post-review combined checks/upload/CI follow in WORK_LOG. Same branch/Codespace/private port and unchanged Sandbox helper; pre-production rollback remains cad4d922. No main merge or marketplace writes. Shared storage, real paid/production acceptance and crosslisting remain outstanding.
+
+## 2026-10-23 — Interrupted work audit
+
+Uploaded cad4d922c10007ad3247f9ef85e1079513421c49 passed GitHub runs39795866180 and39795875349; production-read rollback verified at same SHA. Local ebay_live.py/live-inventory.js and server/app/index/backup edits remain unfinished and NOT uploaded. No production UI or opportunity module yet; only Sandbox configured. Review exact SKU matching and ledger consistency and add production tests before release. Fixed productionKey backup rejection with regression. Transition checks:41 Node pass;53 Python run,52 pass/one POSIX Windows skip; syntax/diff checks pass. Production acceptance not performed. Detailed continuation record RETROHQ_NEXT_CHAT.md is in parent workspace.
+
 Last updated: 2026-10-13 (Europe/London).
 
 **Working implementation:** 8.4 now includes an isolated offline sales demo on `retrohq-test-8.3`. Pre-demo uploaded checkpoint: `e6a9942714febd058925e99f3733a2f2ab66ce58`. Inspect the remote tip and work log for upload/CI evidence. Real paid-order Sandbox acceptance remains pending and no longer blocks offline app testing.
