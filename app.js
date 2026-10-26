@@ -1,8 +1,5 @@
 (() => {
 'use strict';
-function applyTheme(theme){document.documentElement.dataset.theme=theme;const b=document.querySelector('#themeToggle');if(b)b.textContent=theme==='dark'?'Light mode':'Dark mode';}
-let savedTheme='light';try{savedTheme=localStorage.getItem('retrohq.theme')==='dark'?'dark':'light';}catch{}applyTheme(savedTheme);
-window.toggleTheme=()=>{const theme=document.documentElement.dataset.theme==='dark'?'light':'dark';applyTheme(theme);try{localStorage.setItem('retrohq.theme',theme);}catch{}};
 const demoMode=new URLSearchParams(window.location.search).get('demo')==='1';
 const workspaceKey=demoMode?RetroDemo.storageKey:'retrohq.sandbox.v84';
 // All provider requests in this app go through this guard during offline training.
