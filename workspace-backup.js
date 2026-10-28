@@ -21,7 +21,7 @@ function validate(state){
   if(!object(i)||!Number.isSafeInteger(i.id)||ids.has(i.id)||typeof i.title!=='string'||!i.title.trim()||typeof i.status!=='string'||!Array.isArray(i.timeline)||i.timeline.some(t=>!Array.isArray(t)||t.length<2||t.some(v=>typeof v!=='string')))fail('Invalid or duplicate inventory record.');
   if(i.photoData!=null&&!(typeof i.photoData==='string'&&i.photoData.length<=250000&&/^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/.test(i.photoData)))fail('Invalid reference photo.');
   ids.add(i.id);
-  for(const k of ['buy','processingCosts'])if(typeof i[k]!=='number'||!Number.isFinite(i[k])||i[k]<0)fail('Invalid purchase or processing cost.');
+  for(const k of ['buy','processingCosts'])if(!(i[k]===null&&i.source==='eBay import'&&i.importedFrom==='ebay-production')&&(typeof i[k]!=='number'||!Number.isFinite(i[k])||i[k]<0))fail('Invalid purchase or processing cost.');
   if(i.sale!=null&&(!object(i.sale)||typeof i.sale.price!=='number'||i.sale.price<0||typeof i.sale.date!=='string'))fail('Invalid sale record.');
  }
  if(state.transactions!=null){
@@ -29,9 +29,9 @@ function validate(state){
   const txIds=new Set();
   for(const t of state.transactions){
    if(!object(t)||typeof t.id!=='string'||txIds.has(t.id)||!Array.isArray(t.lines)||!t.lines.length||t.lines.some(l=>!object(l)||!ids.has(l.id))||new Set(t.lines.map(l=>l.id)).size!==t.lines.length)fail('Invalid transaction history.');txIds.add(t.id);
-   for(const k of ['subtotal','discount','total','fee','credit','due'])if(!Number.isSafeInteger(t[k])||t[k]<0)fail('Invalid transaction amount.');
+   for(const k of ['subtotal','discount','total','fee','credit','due'])if(!(k==='fee'&&t.source==='ebay-production'&&t.fee===null)&&(!Number.isSafeInteger(t[k])||t[k]<0))fail('Invalid transaction amount.');
    if(t.subtotal-t.discount!==t.total||t.total-t.credit!==t.due)fail('Transaction totals do not agree.');
-   for(const [k,total] of [['listedPrice','subtotal'],['price','total'],['discount','discount'],['fee','fee'],['credit','credit']])if(t.lines.some(l=>!Number.isSafeInteger(l[k])||l[k]<0)||t.lines.reduce((a,l)=>a+l[k],0)!==t[total])fail('Transaction allocation does not agree.');
+   for(const [k,total] of [['listedPrice','subtotal'],['price','total'],['discount','discount'],['fee','fee'],['credit','credit']])if(k==='fee'&&t.source==='ebay-production'&&t.fee===null?t.lines.some(l=>l.fee!==null):(t.lines.some(l=>!Number.isSafeInteger(l[k])||l[k]<0)||t.lines.reduce((a,l)=>a+l[k],0)!==t[total]))fail('Transaction allocation does not agree.');
    if(t.lines.some(l=>l.listedPrice-l.discount!==l.price))fail('Invalid discounted item price.');
   }
  }

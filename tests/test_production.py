@@ -70,7 +70,7 @@ class ProductionTests(unittest.TestCase):
         self.assertTrue(all(urlparse(r.full_url).hostname=='api.ebay.com' for r in requests))
         self.assertEqual(requests[0].get_method(),'POST');self.assertIn(b'GetMyeBaySellingRequest',requests[0].data)
         self.assertEqual(requests[1].get_method(),'GET');self.assertIn('lastmodifieddate',requests[1].full_url)
-        self.assertNotIn('PRIVATE',json.dumps(result));self.assertEqual(result['orders'][0]['sku'],'ONE')
+        self.assertNotIn('PRIVATE',json.dumps(result));self.assertEqual(result['orders'][0]['sku'],'ONE');self.assertEqual(result['orders'][0]['createdAt'],'2026-10-23T12:00:00Z')
         with patch.object(live,'_user_token',return_value={'ok':True,'token':'x'}),patch.object(live,'_read_bytes',return_value=listing_xml(pages=99)):
             # Listing cap then malformed order response => no partial success saved.
             self.assertFalse(live.snapshot()['ok'])
@@ -121,3 +121,4 @@ class ProductionTests(unittest.TestCase):
             quote=server.opportunity_cex('Game','X');self.assertTrue(quote['verified']);self.assertEqual(quote['cash'],20)
 
 if __name__=='__main__':unittest.main()
+

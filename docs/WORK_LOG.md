@@ -138,3 +138,11 @@ Implementation 42bc80b30a95c9d2770089993ccbeb0f0e614c19 uploaded to retrohq-test
 
 ## 2026-10-22 — Operations and acquisition
 Resumed preserved operations edits and reran browser trial successfully. Rollback retrohq-rollback-before-operations remains at 36eba0e. Implemented previous requested workflow and local operations; full tests described in handover. Phone screenshot inspected and light-form contrast corrected. Sandbox session tested with mocked API only, not a real paid order. Production credentials are not yet configured (user confirmed). This batch is uploaded before separate live connector work.
+
+
+## 2026-10-28 — Shared inventory and production sales
+User authorises eBay-only listings to create inventory and paid eBay orders to enter the normal Sales/receipts/fulfilment/reporting workflows. Inventory remains the shared physical-unit record. Initial historical sales are separate from current available quantity. Exact listing/variation matching, order-line idempotency, explicit owned-stock matching, missing-cost labels and retained return/change review prevent fabricated cost basis or destructive stock inference. First migration protects a browser recovery copy. No eBay writes, new OAuth permissions, shared device storage or billing introduced.
+
+Optional future product architecture: Inventory core, Sales and Market Insights modules, marketplace connectors such as eBay within Sales. User prioritises their own complete system now; paid access/account boundaries remain a future deliberate implementation.
+
+Validation: 69 Node tests pass; Python 67 run, 66 pass and one Windows POSIX skip; focused production 8 pass after timestamp regression assertion. Controlled browser checks pass initial/history counts, six views, cost entry and confirmed profit, shared linked-unit sale, transaction history, repeat/reload idempotency, provider failure retention, pre-import recovery and failed recovery-write retention. Actual account acceptance remains next. See UNIFIED_INVENTORY_TRIAL.md. Rollback retrohq-rollback-before-unified-inventory at f8c5084335b4be7c36e298acd4213c4fe4ff0eb6. Existing unuploaded guide edits remain separate.

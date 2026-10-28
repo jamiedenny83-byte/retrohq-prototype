@@ -288,6 +288,9 @@ def snapshot():
             orders.extend(batch);order_truncated=bool(data.get("next") or (data.get("total",0)>len(orders)))
             if not order_truncated:break
             if not batch:raise ValueError("Order pagination made no progress")
-        return {"ok":True,"environment":"production","listings":listings,"orders":normalize_orders(orders),"listingTruncated":listing_truncated,"orderTruncated":order_truncated,"checkedAt":datetime.now(timezone.utc).isoformat(),"note":"Active listings and orders modified in the last 30 days. Fees, refunds, older orders and physical returns require review. No marketplace changes sent."}
+        created_times={(str(o.get("orderId") or ""),str(l.get("lineItemId") or "")):str(o.get("creationDate") or "") for o in orders for l in o.get("lineItems",[])}
+        normalized=normalize_orders(orders)
+        for line in normalized: line["createdAt"]=created_times.get((line["orderId"],line["lineItemId"]),"")
+        return {"ok":True,"environment":"production","listings":listings,"orders":normalized,"listingTruncated":listing_truncated,"orderTruncated":order_truncated,"checkedAt":datetime.now(timezone.utc).isoformat(),"note":"Active listings and orders modified in the last 30 days. Fees, refunds, older orders and physical returns require review. No marketplace changes sent."}
     except HTTPError as e:return {"ok":False,"status":"Production eBay read failed (HTTP {}).".format(e.code)}
     except (URLError,TimeoutError,OSError,ValueError,TypeError,ET.ParseError):return {"ok":False,"status":"Production eBay snapshot unavailable; keep the previous snapshot and retry."}

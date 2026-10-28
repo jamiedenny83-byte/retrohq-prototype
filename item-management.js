@@ -10,14 +10,14 @@ function transition(item,direction){
  const copy=JSON.parse(JSON.stringify(item));if(next!==current){copy.status=next;copy.timeline.push(['Processing',current+' → '+next]);}return copy;
 }
 function edit(item,input,now){
- if(sold(item))throw Error('Use the sale or return record for sold stock.');
+ if(sold(item)&&input.valueChanged)throw Error('A sold item keeps its valuation; correct its costs or location only.');
  const number=(v,optional)=>{if(v==null||String(v).trim()===''){if(optional)return null;throw Error('Enter the purchase price, including zero for a free item.');}const n=Number(v);if(!Number.isFinite(n)||n<0)throw Error('Prices must be zero or positive.');return Math.round(n*100)/100;};
- const buy=number(input.buy,false),value=number(input.value,true),copy=JSON.parse(JSON.stringify(item));
+ const buy=number(input.buy,item.importedFrom==='ebay-production'),value=number(input.value,true),copy=JSON.parse(JSON.stringify(item));
  const text=v=>{const t=String(v||'').trim();if(/[<>"`\u0000-\u0008]/.test(t))throw Error('Use plain text without markup or double quotation marks.');return t;};
  const area=text(input.area),shelf=text(input.shelf),notes=text(input.notes);
  copy.editHistory=copy.editHistory||[];copy.editHistory.push({date:now,before:{buy:item.buy,baseMarket:item.baseMarket??null,valuation:item.valuation||null,area:item.area||'',shelf:item.shelf||'',location:item.location||'',notes:item.notes||''}});
- if(item.buy!==buy)copy.timeline.push(['Purchase price corrected','£'+Number(item.buy).toFixed(2)+' → £'+buy.toFixed(2)]);
- copy.buy=buy;
+ if(item.buy!==buy)copy.timeline.push(['Purchase price corrected',(item.buy===null?'Unknown':'£'+Number(item.buy).toFixed(2))+' → '+(buy===null?'Unknown':'£'+buy.toFixed(2))]);
+ copy.buy=buy;if(input.processingCosts!==undefined){copy.editHistory.at(-1).before.processingCosts=item.processingCosts;copy.processingCosts=number(input.processingCosts,item.importedFrom==='ebay-production');}
  if(input.valueChanged){
   copy.baseMarket=value;copy.marketIsConditionSpecific=true;copy.needsValuation=value===null;
   copy.valuation={...(copy.valuation||{}),finalValue:value,source:'Manual inventory edit',confidence:value===null?'unknown':'manual',timestamp:now,stale:value===null,staleReasons:value===null?['Value cleared by user']:[],recommendedMax:value===null?null:Math.round(value*Number(input.offerPct)/100*100)/100};
