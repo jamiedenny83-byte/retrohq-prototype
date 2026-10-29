@@ -37,6 +37,7 @@ function validate(state){
  }
  const liveApi=typeof module!=='undefined'&&module.exports?require('./live-inventory'):root.RetroLive;
  liveApi.check(state);
+ const stockApi=typeof module!=='undefined'&&module.exports?require('./stock-sync'):root.RetroStockSync;stockApi.check(state);
  if(state.opportunities!=null&&(!object(state.opportunities)||!Array.isArray(state.opportunities.rows)||state.opportunities.rows.some(r=>!object(r)||typeof r.id!=='string')))fail('Invalid opportunity watchlist.');
 
  const customerIds=new Set();

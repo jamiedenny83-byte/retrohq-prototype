@@ -32,11 +32,17 @@ function check(state){
  for(const r of live?.ledger||[]){const units=r.itemIds.map(id=>state.items.find(i=>i.id===id));for(const i of units)if(!r.outcome&&i.sale.transactionId&&!state.transactions?.some(t=>t.id===i.sale.transactionId&&t.lines.some(l=>l.id===i.id)))throw Error('Imported sale lacks its receipt.');}
  return state;
 }
+function validateDetails(d){
+ if(d==null)return;
+ if(!obj(d)||d.images!=null&&(!Array.isArray(d.images)||d.images.some(x=>typeof x!=='string')))throw Error('Invalid listing photos.');
+ for(const k of ['specifics','variationSpecifics'])if(d[k]!=null&&(!Array.isArray(d[k])||d[k].some(x=>!obj(x)||typeof x.name!=='string'||!Array.isArray(x.values)||x.values.some(v=>typeof v!=='string'))))throw Error('Invalid listing specifics.');
+ for(const k of ['description','conditionName','conditionDescription','brand','categoryName'])if(d[k]!=null&&typeof d[k]!=='string')throw Error('Invalid listing details.');
+}
 function validateListings(rows){
- const seen=new Set();for(const l of rows){if(!obj(l)||!/^\d+$/.test(l.listingId)||typeof l.sku!=='string'||typeof l.title!=='string'||seen.has(listingKey(l))||!(l.quantity===null||Number.isSafeInteger(l.quantity)&&l.quantity>=0)||!(l.price===null||Number.isFinite(l.price)&&l.price>=0))throw Error('Invalid or ambiguous listing snapshot.');seen.add(listingKey(l));}
+ const seen=new Set();for(const l of rows){if(!obj(l)||!/^\d+$/.test(l.listingId)||typeof l.sku!=='string'||typeof l.title!=='string'||seen.has(listingKey(l))||!(l.quantity===null||Number.isSafeInteger(l.quantity)&&l.quantity>=0)||!(l.price===null||Number.isFinite(l.price)&&l.price>=0))throw Error('Invalid or ambiguous listing snapshot.');validateDetails(l.details);seen.add(listingKey(l));}
 }
 function validateOrders(rows){
- const seen=new Set();for(const l of rows){if(!identity(l)||seen.has(key(l))||typeof l.sku!=='string'||typeof l.listingId!=='string'||!Number.isSafeInteger(l.quantity)||l.quantity<0||!(l.price===null||typeof l.price==='number'&&Number.isFinite(l.price)&&l.price>=0)||typeof l.date!=='string'||typeof l.refundDetected!=='boolean')throw Error('Invalid or repeated production order.');seen.add(key(l));}
+ const seen=new Set();for(const l of rows){if(!identity(l)||seen.has(key(l))||typeof l.sku!=='string'||typeof l.listingId!=='string'||!Number.isSafeInteger(l.quantity)||l.quantity<0||!(l.price===null||typeof l.price==='number'&&Number.isFinite(l.price)&&l.price>=0)||typeof l.date!=='string'||typeof l.refundDetected!=='boolean')throw Error('Invalid or repeated production order.');validateDetails(l.details);seen.add(key(l));}
 }
 function snapshotValid(s){
  if(!obj(s)||s.environment!=='production'||s.ok!==true||!Array.isArray(s.listings)||!Array.isArray(s.orders)||!Number.isFinite(Date.parse(s.checkedAt)))throw Error('Invalid production snapshot.');
@@ -50,8 +56,10 @@ function allocate(next,l,ids){
  if(units.some(i=>!i||!available(i)||(i.liveListingId&&(i.liveListingId!==l.listingId||(i.liveSku||'')!==l.sku))))throw Error('Stock is unavailable or linked to another listing / variation.');
  const cents=Math.round(l.price*100),base=Math.floor(cents/units.length);
  for(const [n,i]of units.entries()){
+  const listing=live.listings.find(x=>x.listingId===l.listingId&&x.sku===l.sku);enrichUnit(next,i,listing||{...l,price:null});
   i.liveListingId=l.listingId;i.liveSku=l.sku;
   i.sale={channel:'eBay Live',productionKey:id,price:(base+(n<cents%units.length?1:0))/100,date:l.date,feeType:'fixed',feeValue:l.quantity===1&&l.orderLineCount===1?l.orderFee:null,shipping:null,packaging:null,promotion:null,shippingRevenue:l.quantity===1&&l.orderLineCount===1?l.orderShipping:null,costsConfirmed:false,status:l.fulfillmentStatus==='FULFILLED'?'Dispatched':'Ready to dispatch'};
+  if(i.sale.feeValue==null&&i.sellingFeeEstimate){i.sale.feeType=i.sellingFeeEstimate.type;i.sale.feeValue=i.sellingFeeEstimate.value;i.sale.feeEstimated=true;}
   i.status=l.fulfillmentStatus==='FULFILLED'?'Dispatched':'Sold';(i.timeline||(i.timeline=[])).push(['eBay Live sale',live.checkedAt+' · exact stock allocation · '+l.orderId]);
  }
  live.ledger.push({key:id,imported:copy(l),latest:copy(l),itemIds:ids.slice(),review:false});
@@ -60,13 +68,27 @@ function allocate(next,l,ids){
 // marketplace writes are involved. A record represents one physical unit.
 const pair=(i,l)=>i.liveListingId===l.listingId&&(i.liveSku||'')===l.sku;
 const cents=n=>Math.round(n*100);
-const plain=s=>String(s||'').replace(/[<>"`\u0000-\u001f]/g,' ').replace(/\s+/g,' ').trim().slice(0,180);
+const plain=(s,limit=180)=>String(s||'').replace(/[<>"`\u0000-\u001f]/g,' ').replace(/\s+/g,' ').trim().slice(0,limit);
+function enrichUnit(next,i,l){
+ const d=l.details||{},fee=next.settings?.fees?.eBay;
+ if(fee&&['fixed','percent'].includes(fee.type)&&Number.isFinite(fee.value))i.sellingFeeEstimate={channel:'eBay',type:fee.type,value:fee.value,source:'Business defaults',capturedAt:next.liveEbay.checkedAt};
+ if(i.importedFrom!=='ebay-production')return;
+ if(l.currency==='GBP'&&Number.isFinite(l.price)&&(!i.valuation||i.valuation.source==='eBay listing price')){
+  const value=l.price;i.baseMarket=value;i.marketIsConditionSpecific=true;i.needsValuation=false;i.valuation={...(i.valuation||{}),finalValue:value,benchmark:value,benchmarkLabel:'eBay listing asking price',source:'eBay listing price',confidence:'asking-price',timestamp:next.liveEbay.checkedAt,stale:false};
+ }
+ if(!i.manufacturer&&d.brand)i.manufacturer=plain(d.brand);
+ if(i.category==='Uncategorised'&&d.categoryName){const name=plain(d.categoryName);i.category=/accessories|controllers/i.test(name)?'Accessory':/video games(?!.*consoles)/i.test(name)?'Video Game':/consoles/i.test(name)?'Console':name;}
+ if(i.condition==='Unknown'&&d.conditionName){i.condition=plain(d.conditionName);i.acquiredCondition=i.condition;}
+ if(!i.notes&&!i.editHistory?.length&&d.description)i.notes=plain(d.description,4000);
+ if(!i.barcode&&(d.ean||d.upc))i.barcode=plain(d.ean||d.upc,32);
+ i.liveSnapshot={...copy(l),checkedAt:next.liveEbay.checkedAt};
+}
 function importUnit(next,l,origin){
  if(++next.liveEbay.createdThisSync>2000)throw Error('More than 2,000 new units in one sync. No changes saved; review the listing quantities first.');
  const id=Math.max(0,...next.items.map(i=>i.id))+1;
  if(!Number.isSafeInteger(id))throw Error('Inventory identifiers are exhausted.');
  const i={id,title:plain(l.title)||'eBay item '+l.listingId,manufacturer:'',category:'Uncategorised',source:'eBay import',importedFrom:'ebay-production',importOrigin:origin,importedAt:next.liveEbay.checkedAt,buy:null,processingCosts:null,baseMarket:null,needsValuation:true,needsIdentification:true,condition:'Unknown',acquiredCondition:'Unknown',status:'Listed',location:'Unassigned',area:'',shelf:'',notes:'',photos:0,velocity:0,liveListingId:l.listingId,liveSku:l.sku,listing:{channel:'eBay Live',price:l.currency==='GBP'?l.price:null,date:(l.startDate||'').slice(0,10)},sale:null,timeline:[['Imported from eBay',next.liveEbay.checkedAt+' · listing '+l.listingId+' · purchase and preparation costs unknown']]};
- next.items.push(i);return i;
+ next.items.push(i);enrichUnit(next,i,l);return i;
 }
 function receipt(next,row){
  const units=row.itemIds.map(id=>next.items.find(i=>i.id===id));
@@ -105,18 +127,22 @@ function recordedSale(next,l){
  }else next.liveEbay.issues.push('Order '+l.orderId+': an existing local eBay sale needs matching; no duplicate sale imported.');
  return true;
 }
-function syncInventory(state,snapshot){
+function syncInventory(state,snapshot,options={}){
  check(state);snapshotValid(snapshot);if(state.liveEbay?.checkedAt&&Date.parse(snapshot.checkedAt)<Date.parse(state.liveEbay.checkedAt))throw Error('An older snapshot cannot replace the latest inventory.');
  const next=copy(state),live=next.liveEbay||(next.liveEbay={listings:[],orders:[],ledger:[]});
  const previous=live.inventoryBaseline||null;
  Object.assign(live,{listings:copy(snapshot.listings),orders:copy(snapshot.orders),checkedAt:snapshot.checkedAt,partial:!!(snapshot.listingTruncated||snapshot.orderTruncated),note:snapshot.note||'',issues:[],createdThisSync:0});
+ for(const i of next.items.filter(i=>i.liveListingId)){
+  const listing=live.listings.find(l=>pair(i,l));if(listing)enrichUnit(next,i,listing);
+  if(i.sale&&i.sale.feeValue==null&&i.sellingFeeEstimate){Object.assign(i.sale,{feeType:i.sellingFeeEstimate.type,feeValue:i.sellingFeeEstimate.value,feeEstimated:true});}
+ }
  const consumed=new Map();
  for(const l of [...live.orders].sort((a,b)=>String(b.createdAt||b.date).localeCompare(String(a.createdAt||a.date)))){
   const row=live.ledger.find(r=>r.key===key(l));
   if(row){row.latest=copy(l);if(!row.outcome){if(changed(l,row.imported)){row.review=true;for(const id of row.itemIds)next.items.find(i=>i.id===id).sale.reviewNeeded=true;}
     else if(l.fulfillmentStatus==='FULFILLED')for(const id of row.itemIds){const i=next.items.find(i=>i.id===id);if(['Sold','Packaged'].includes(i.status)){i.status='Dispatched';i.sale.status='Dispatched';}}
    }receipt(next,row);continue;}
-  if(live.partial||!valid(l)||!/^\d+$/.test(l.listingId))continue;
+  if(live.partial||!valid(l)||!/^\d+$/.test(l.listingId)||options.deferredOrders?.includes(key(l)))continue;
   if(!l.sku&&live.listings.some(x=>x.listingId===l.listingId&&x.sku)){live.issues.push('Order '+l.orderId+': variation identity is missing. Match it manually.');continue;}
   if(recordedSale(next,l))continue;
   // Bootstrap orders predate the current remaining stock. Never consume that
@@ -128,9 +154,10 @@ function syncInventory(state,snapshot){
   const remaining=live.listings.find(x=>x.listingId===l.listingId&&x.sku===l.sku)?.quantity??0;
   const decline=Number.isSafeInteger(priorQuantity)?Math.max(0,priorQuantity-remaining):0;
   const observedSale=decline-(consumed.get(listingKey(l))||0)>=l.quantity;
-  const units=current||sameDay||observedSale?next.items.filter(i=>available(i)&&pair(i,l)).slice(0,l.quantity):[];
+  const units=!options.forceNewOrders?.includes(key(l))&&(current||sameDay||observedSale)?next.items.filter(i=>available(i)&&pair(i,l)).slice(0,l.quantity):[];
+  if(options.deferNew&&units.length<l.quantity&&!options.approvedOrders?.includes(key(l))){live.issues.push('Order '+l.orderId+': match existing stock or confirm unrecorded sold units in Stock review.');continue;}
   consumed.set(listingKey(l),(consumed.get(listingKey(l))||0)+units.length);
-  while(units.length<l.quantity)units.push(importUnit(next,l,'order'));
+  while(units.length<l.quantity)units.push(importUnit(next,{...l,price:null,...(live.listings.find(x=>x.listingId===l.listingId&&x.sku===l.sku)||{})},'order'));
   allocate(next,l,units.map(i=>i.id));receipt(next,live.ledger.at(-1));
  }
  if(!live.partial){
@@ -141,10 +168,11 @@ function syncInventory(state,snapshot){
    // Initial stock and later explicit quantity increases can add units. An
    // unchanged remote quantity must never recreate a locally sold/unlinked unit.
    const allowance=prior&&prior.quantity!==null?Math.max(0,l.quantity-(prior.quantity??l.quantity)):l.quantity;
-   const add=Math.min(allowance,Math.max(0,l.quantity-units.length));
+   const approved=options.approvedListings?.includes(listingKey(l));
+   const add=options.deferNew&&!approved?0:Math.min(approved?l.quantity:allowance,Math.max(0,l.quantity-units.length));
    for(let n=0;n<add;n++)importUnit(next,l,'listing');
    const linked=next.items.filter(i=>available(i)&&pair(i,l));
-   for(const i of linked){i.liveSnapshot={...copy(l),checkedAt:live.checkedAt};i.listing={channel:'eBay Live',price:l.currency==='GBP'?l.price:null,date:i.listing?.date||(l.startDate||'').slice(0,10)};}
+   for(const i of linked){enrichUnit(next,i,l);i.liveSnapshot={...copy(l),checkedAt:live.checkedAt};i.listing={channel:'eBay Live',price:l.currency==='GBP'?l.price:null,date:i.listing?.date||(l.startDate||'').slice(0,10)};}
    if(linked.length!==l.quantity)live.issues.push('Listing '+l.listingId+' / '+plain(l.sku||'no SKU')+': eBay has '+l.quantity+' available; RetroHQ has '+linked.length+'. Check orders, restocking and other-channel sales. Stock was not deleted or recreated.');
   }
   for(const i of next.items.filter(i=>available(i)&&i.liveListingId))if(!live.listings.some(l=>pair(i,l))){i.liveSnapshot={status:'Not in active snapshot — verify on eBay',checkedAt:live.checkedAt};live.issues.push('Item '+i.id+': listing no longer active. Verify physical stock; it is retained.');}
@@ -155,14 +183,14 @@ function syncInventory(state,snapshot){
 }
 
 function link(state,listingId,sku,ids){check(state);const next=copy(state),matches=next.liveEbay?.listings.filter(l=>l.listingId===listingId&&l.sku===sku)||[];if(matches.length!==1)throw Error('Refresh the exact listing / variation first.');if(!ids.length||new Set(ids).size!==ids.length)throw Error('Select physical stock.');
- const placeholders=next.items.filter(i=>pair(i,{listingId,sku})&&available(i)&&!ids.includes(i.id)&&i.importOrigin==='listing'&&i.buy===null&&i.processingCosts===null&&!i.editHistory?.length&&!i.notes&&i.timeline.length===1&&!i.valuation&&!i.photoData&&!i.photos&&!i.identity&&!i.saleHistory?.length&&!i.returns?.length);
+ const placeholders=next.items.filter(i=>pair(i,{listingId,sku})&&available(i)&&!ids.includes(i.id)&&i.importOrigin==='listing'&&i.buy===null&&i.processingCosts===null&&!i.editHistory?.length&&(!i.notes||i.notes===plain(i.liveSnapshot?.details?.description,4000))&&i.timeline.length===1&&(!i.valuation||i.valuation.source==='eBay listing price')&&!i.photoData&&!i.photos&&!i.identity&&!i.saleHistory?.length&&!i.returns?.length);
  const incoming=ids.filter(id=>{const i=next.items.find(i=>i.id===id);return i&&!pair(i,{listingId,sku});});
  const replace=placeholders.slice(0,incoming.length);
  next.items=next.items.filter(i=>!replace.includes(i));
  for(const id of ids){const i=next.items.find(i=>i.id===id);if(!i||!available(i))throw Error('Only available stock can be linked.');if(i.liveListingId&&(i.liveListingId!==listingId||(i.liveSku||'')!==sku))throw Error('Unlink the old listing / variation first.');i.liveListingId=listingId;i.liveSku=sku;i.status='Listed';i.listing=i.listing||{channel:'eBay Live',price:matches[0].currency==='GBP'?matches[0].price:null,date:(matches[0].startDate||'').slice(0,10)};(i.timeline||(i.timeline=[])).push(['eBay Live linked',new Date().toISOString()+' · listing '+listingId]);}return next;
 }
 function unlink(state,id){check(state);const next=copy(state),i=next.items.find(i=>i.id===id);if(!i||!available(i))throw Error('Only available stock can be unlinked.');delete i.liveListingId;delete i.liveSku;delete i.liveSnapshot;i.timeline.push(['eBay Live unlinked',new Date().toISOString()]);return next;}
-function apply(state,orderKey,ids){check(state);const next=copy(state),l=next.liveEbay?.orders.find(l=>key(l)===orderKey);if(!l)throw Error('Refresh this order first.');allocate(next,l,ids);receipt(next,next.liveEbay.ledger.at(-1));return check(next);}
+function apply(state,orderKey,ids,addMissing=false){check(state);const next=copy(state),l=next.liveEbay?.orders.find(l=>key(l)===orderKey);if(!l)throw Error('Refresh this order first.');ids=ids.slice();if(addMissing){if(!valid(l)||!ids.length||ids.length>l.quantity)throw Error('Review the sold quantity first.');next.liveEbay.createdThisSync=0;while(ids.length<l.quantity)ids.push(importUnit(next,{...l,price:null,...(next.liveEbay.listings.find(x=>x.listingId===l.listingId&&x.sku===l.sku)||{})},'order').id);delete next.liveEbay.createdThisSync;}allocate(next,l,ids);receipt(next,next.liveEbay.ledger.at(-1));return check(next);}
 function replaceImportedSale(state,orderKey,ids){
  check(state);const next=copy(state),r=next.liveEbay?.ledger.find(r=>r.key===orderKey);
  if(!r||r.outcome||r.review||r.localTransactionId||ids.length!==r.itemIds.length||new Set(ids).size!==ids.length)throw Error('Select exactly the imported sale quantity, with no order changes pending.');
@@ -175,5 +203,5 @@ function acceptChange(state,orderKey){check(state);const next=copy(state),r=next
  const cents=Math.round(r.latest.price*100);for(const [n,id]of r.itemIds.entries()){const i=next.items.find(i=>i.id===id);(i.saleCostHistory||(i.saleCostHistory=[])).push({date:new Date().toISOString(),before:copy(i.sale)});Object.assign(i.sale,{price:(Math.floor(cents/r.itemIds.length)+(n<cents%r.itemIds.length?1:0))/100,date:r.latest.date,feeValue:r.itemIds.length===1&&r.latest.orderLineCount===1?r.latest.orderFee:null,shippingRevenue:r.itemIds.length===1&&r.latest.orderLineCount===1?r.latest.orderShipping:null,reviewNeeded:false,costsConfirmed:false});}r.imported=copy(r.latest);r.review=false;receipt(next,r);return check(next);
 }
 function restore(state,orderKey){check(state);const next=copy(state),r=next.liveEbay?.ledger.find(r=>r.key===orderKey);if(!r||r.outcome||!r.review)throw Error('Only a reviewed imported order can be physically returned.');for(const id of r.itemIds){const i=next.items.find(i=>i.id===id);(i.saleHistory||(i.saleHistory=[])).push({...copy(i.sale),outcome:'Returned',returnDate:new Date().toISOString()});i.sale=null;i.listing=null;i.status='Needs repair';i.needsValuation=true;delete i.liveListingId;delete i.liveSku;delete i.liveSnapshot;i.timeline.push(['eBay Live physical return',new Date().toISOString()+' · inspect and reconcile refund before resale']);}r.outcome='returned';receipt(next,r);return check(next);}
-const api={key,valid,available,check,reconcile:syncInventory,link,unlink,apply,replaceImportedSale,acceptChange,restore};if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.RetroLive=api;
+const api={key,valid,available,check,validateSnapshot:snapshotValid,reconcile:syncInventory,link,unlink,apply,replaceImportedSale,acceptChange,restore};if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.RetroLive=api;
 })(typeof globalThis!=='undefined'?globalThis:this);

@@ -11,7 +11,7 @@ test('bootstrap creates available units and historical sales separately; all sha
  assert.equal(old.items.length,0);assert.equal(s.items.length,4);assert.equal(s.items.filter(C.available).length,2);
  assert.equal(s.items.filter(i=>i.sale).length,2);assert.equal(s.transactions.length,1);assert.equal(s.transactions[0].total,3001);
  assert.deepEqual(s.transactions[0].lines.map(l=>l.price),[1501,1500]);assert.equal(s.transactions[0].fee,null);
- for(const i of s.items){assert.equal(i.buy,null);assert.equal(i.processingCosts,null);assert.equal(i.needsValuation,true);assert.equal(O.economics(i).profit,null);}
+ for(const i of s.items){assert.equal(i.buy,null);assert.equal(i.processingCosts,null);assert.equal(i.needsValuation,false);assert.equal(i.valuation.finalValue,25);assert.equal(i.valuation.source,'eBay listing price');assert.equal(O.economics(i).profit,null);}
  assert.ok(!s.items.some(i=>/[<>"]/.test(i.title)));assert.deepEqual(roundtrip(s),s);
  assert.deepEqual(L.reconcile(s,snap([line({quantity:2,price:30.01})])),s);
 });

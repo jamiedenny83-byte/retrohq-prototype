@@ -28,6 +28,8 @@ jobs:
           node --check app.js
           node --check marketplace-ui.js
           node --check live-inventory.js
+          node --check stock-sync.js
+          node --check stock-review-ui.js
           node --check opportunities.js
       - name: Offline seller and CeX market regression tests
         run: python -m unittest discover -s tests -v

@@ -1,3 +1,5 @@
+> Updated 29 October: first import and new daily stock now require review. Use [Stock onboarding trial](STOCK_ONBOARDING_TRIAL.md) for current steps. The following describes the earlier automatic-import release.
+
 # Shared inventory and eBay sales trial
 
 Inventory is the common record for Dashboard, Processing, Sales, item history and Reports. One record represents one physical unit. The production connector reads eBay; it does not publish listings, change prices, dispatch orders or issue refunds there.

@@ -26,7 +26,7 @@ class ProductionTests(unittest.TestCase):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
         self.store=Path(self.temp.name)/'production'/'tokens.json'
         for p in [patch.object(live,'_store_path',return_value=self.store),patch.dict(os.environ,{'EBAY_ENV':'sandbox','EBAY_LIVE_CLIENT_ID':'production-client','EBAY_LIVE_CLIENT_SECRET':'production-secret','EBAY_LIVE_RUNAME':'production-runame','RETROHQ_ADMIN_PIN':'long-private-pin'})]:p.start();self.addCleanup(p.stop)
-        live._pending.clear();live._access.update(token=None,expires=0)
+        live.ebay_listing_details._cache.clear();live.ebay_listing_details._attempted.clear();live._pending.clear();live._access.update(token=None,expires=0)
 
     def test_production_authorisation_is_separate_single_use_and_refresh_only_on_disk(self):
         pending=dict(sandbox._pending);access=dict(sandbox._access)
@@ -66,11 +66,11 @@ class ProductionTests(unittest.TestCase):
             if '/ws/' in request.full_url:return listing_xml()
             return json.dumps({'orders':[order()],'total':1}).encode()
         with patch.object(live,'_user_token',return_value={'ok':True,'token':'PRIVATE_TOKEN'}),patch.object(live,'_read_bytes',side_effect=read):result=live.snapshot()
-        self.assertTrue(result['ok']);self.assertEqual(result['environment'],'production');self.assertEqual(len(requests),2)
+        self.assertTrue(result['ok']);self.assertEqual(result['environment'],'production');self.assertEqual(len(requests),3)
         self.assertTrue(all(urlparse(r.full_url).hostname=='api.ebay.com' for r in requests))
         self.assertEqual(requests[0].get_method(),'POST');self.assertIn(b'GetMyeBaySellingRequest',requests[0].data)
         self.assertEqual(requests[1].get_method(),'GET');self.assertIn('lastmodifieddate',requests[1].full_url)
-        self.assertNotIn('PRIVATE',json.dumps(result));self.assertEqual(result['orders'][0]['sku'],'ONE');self.assertEqual(result['orders'][0]['createdAt'],'2026-10-23T12:00:00Z')
+        self.assertEqual(requests[2].get_header('X-ebay-api-call-name'),'GetItem');self.assertNotIn('PRIVATE',json.dumps(result));self.assertEqual(result['orders'][0]['sku'],'ONE');self.assertEqual(result['orders'][0]['createdAt'],'2026-10-23T12:00:00Z')
         with patch.object(live,'_user_token',return_value={'ok':True,'token':'x'}),patch.object(live,'_read_bytes',return_value=listing_xml(pages=99)):
             # Listing cap then malformed order response => no partial success saved.
             self.assertFalse(live.snapshot()['ok'])

@@ -3,6 +3,7 @@
 Refresh credentials are stored outside the web root in a user-private file.
 No token is returned to the browser. This is not a multi-user production auth system.
 """
+import ebay_listing_details
 import base64
 import hmac
 import json
@@ -291,6 +292,11 @@ def snapshot():
         created_times={(str(o.get("orderId") or ""),str(l.get("lineItemId") or "")):str(o.get("creationDate") or "") for o in orders for l in o.get("lineItems",[])}
         normalized=normalize_orders(orders)
         for line in normalized: line["createdAt"]=created_times.get((line["orderId"],line["lineItemId"]),"")
-        return {"ok":True,"environment":"production","listings":listings,"orders":normalized,"listingTruncated":listing_truncated,"orderTruncated":order_truncated,"checkedAt":datetime.now(timezone.utc).isoformat(),"note":"Active listings and orders modified in the last 30 days. Fees, refunds, older orders and physical returns require review. No marketplace changes sent."}
+        def read_detail(item_id):
+            xml=('<?xml version="1.0" encoding="utf-8"?><GetItemRequest xmlns="urn:ebay:apis:eBLBaseComponents"><DetailLevel>ReturnAll</DetailLevel><IncludeItemSpecifics>true</IncludeItemSpecifics><ItemID>'+item_id+'</ItemID></GetItemRequest>').encode()
+            request=Request("https://api.ebay.com/ws/api.dll",data=xml,headers={"Content-Type":"text/xml","X-EBAY-API-CALL-NAME":"GetItem","X-EBAY-API-SITEID":"3","X-EBAY-API-COMPATIBILITY-LEVEL":"1487","X-EBAY-API-IAF-TOKEN":token["token"]},method="POST")
+            return _read_bytes(request)
+        details_pending=ebay_listing_details.enrich(listings+normalized,read_detail) if not (listing_truncated or order_truncated) else len({x["listingId"] for x in listings+normalized})
+        return {"ok":True,"environment":"production","detailsPending":details_pending,"listings":listings,"orders":normalized,"listingTruncated":listing_truncated,"orderTruncated":order_truncated,"checkedAt":datetime.now(timezone.utc).isoformat(),"note":"Active listings and orders modified in the last 30 days. Fees, refunds, older orders and physical returns require review. No marketplace changes sent."}
     except HTTPError as e:return {"ok":False,"status":"Production eBay read failed (HTTP {}).".format(e.code)}
     except (URLError,TimeoutError,OSError,ValueError,TypeError,ET.ParseError):return {"ok":False,"status":"Production eBay snapshot unavailable; keep the previous snapshot and retry."}
