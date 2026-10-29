@@ -32,5 +32,5 @@ test('a partially linked listing without permission to add its remainder fails a
  let n=S.begin(seed(),snap());n=select(n,'listing','link',[1,2]);assert.throws(()=>S.apply(n));assert.equal(n.items.length,3);assert.equal(n.items[0].liveListingId,undefined);
 });
 test('legacy imported stock deferred during setup stays visible for later matching rather than being silently accepted',()=>{
- let n=L.reconcile(seed(),snap());n=S.begin(n,snap());n=select(n,'listing','later');n=S.apply(n);assert.equal(S.rows(n).length,1);assert.ok(n.liveEbay.stockDeferredListings.length);n=S.daily(n,snap());assert.equal(S.rows(n).length,1);
+ let n=L.reconcile(seed(),snap());n.liveEbay.stockDeferredListings=[JSON.stringify(['123','SAME'])];n=S.begin(n,snap());n=select(n,'listing','later');n=S.apply(n);assert.equal(S.rows(n).length,1);assert.ok(n.liveEbay.stockDeferredListings.length);n=S.daily(n,snap());assert.equal(S.rows(n).length,1);
 });

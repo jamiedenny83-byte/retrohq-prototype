@@ -1,7 +1,7 @@
 /* Portable backups; restore is replacement, never a merge of sales ledgers. */
 (function(root){
 'use strict';
-const fields=['items','customers','settings','creditIssued','researchHistory','ebaySync','transactions','liveEbay','opportunities'];
+const fields=['items','customers','settings','creditIssued','researchHistory','ebaySync','transactions','liveEbay','opportunities','stockCsv'];
 const maxBytes=5*1024*1024;
 const object=x=>x&&typeof x==='object'&&!Array.isArray(x);
 const fail=message=>{throw Error(message);};
@@ -21,9 +21,10 @@ function validate(state){
   if(!object(i)||!Number.isSafeInteger(i.id)||ids.has(i.id)||typeof i.title!=='string'||!i.title.trim()||typeof i.status!=='string'||!Array.isArray(i.timeline)||i.timeline.some(t=>!Array.isArray(t)||t.length<2||t.some(v=>typeof v!=='string')))fail('Invalid or duplicate inventory record.');
   if(i.photoData!=null&&!(typeof i.photoData==='string'&&i.photoData.length<=250000&&/^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/.test(i.photoData)))fail('Invalid reference photo.');
   ids.add(i.id);
-  for(const k of ['buy','processingCosts'])if(!(i[k]===null&&i.source==='eBay import'&&i.importedFrom==='ebay-production')&&(typeof i[k]!=='number'||!Number.isFinite(i[k])||i[k]<0))fail('Invalid purchase or processing cost.');
+  for(const k of ['buy','processingCosts'])if(!(i[k]===null&&(['eBay import','CSV import'].includes(i.source)&&['ebay-production','stock-csv'].includes(i.importedFrom)))&&(typeof i[k]!=='number'||!Number.isFinite(i[k])||i[k]<0))fail('Invalid purchase or processing cost.');
   if(i.sale!=null&&(!object(i.sale)||typeof i.sale.price!=='number'||i.sale.price<0||typeof i.sale.date!=='string'))fail('Invalid sale record.');
  }
+ if(state.stockCsv!=null){if(!object(state.stockCsv)||!Array.isArray(state.stockCsv.imports)||!Array.isArray(state.stockCsv.quarantine))fail('Invalid stock CSV history.');const seen=new Set();for(const entry of state.stockCsv.imports){if(!object(entry)||!/^([a-f0-9]{64})$/.test(entry.hash)||seen.has(entry.hash)||!Array.isArray(entry.itemIds)||entry.itemIds.some(id=>!ids.has(id)||state.items.find(i=>i.id===id).csvImportHash!==entry.hash))fail('Invalid CSV duplicate protection.');seen.add(entry.hash);}}
  if(state.transactions!=null){
   if(!Array.isArray(state.transactions))fail('Invalid transactions.');
   const txIds=new Set();

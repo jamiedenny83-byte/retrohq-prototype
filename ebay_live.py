@@ -266,6 +266,21 @@ def _active_page(xml):
                          "url":"https://www.ebay.co.uk/itm/"+text(item,"e:ItemID")})
     return rows,int(root.findtext("e:ActiveList/e:PaginationResult/e:TotalNumberOfPages","1",namespaces=ns))
 
+def _read_listing_detail(token,item_id):
+    xml=('<?xml version="1.0" encoding="utf-8"?><GetItemRequest xmlns="urn:ebay:apis:eBLBaseComponents"><DetailLevel>ReturnAll</DetailLevel><IncludeItemSpecifics>true</IncludeItemSpecifics><ItemID>'+item_id+'</ItemID></GetItemRequest>').encode()
+    request=Request("https://api.ebay.com/ws/api.dll",data=xml,headers={"Content-Type":"text/xml","X-EBAY-API-CALL-NAME":"GetItem","X-EBAY-API-SITEID":"3","X-EBAY-API-COMPATIBILITY-LEVEL":"1487","X-EBAY-API-IAF-TOKEN":token},method="POST")
+    return _read_bytes(request)
+
+_detail_rows=set()
+def listing_details(rows):
+    if not isinstance(rows,list) or not rows or len(rows)>100 or any(not isinstance(r,dict) or not isinstance(r.get('listingId'),str) or not isinstance(r.get('sku',''),str) or (r['listingId'],r.get('sku','')) not in _detail_rows for r in rows):return {"ok":False,"status":"Refresh your own eBay listings before requesting their details."}
+    token=_user_token()
+    if not token['ok']:return token
+    safe=[{'listingId':r['listingId'],'sku':r.get('sku','')}for r in rows]
+    before=dict(ebay_listing_details._attempted)
+    pending=ebay_listing_details.enrich(safe,lambda item_id:_read_listing_detail(token['token'],item_id))
+    return {'ok':True,'environment':'production','details':safe,'detailsPending':pending,'retryRows':[{'listingId':r['listingId'],'sku':r['sku']}for r in safe if not r.get('details') and ebay_listing_details._attempted.get(r['listingId'])==before.get(r['listingId'])]}
+
 def snapshot():
     token=_user_token()
     if not token["ok"]:return token
@@ -292,11 +307,8 @@ def snapshot():
         created_times={(str(o.get("orderId") or ""),str(l.get("lineItemId") or "")):str(o.get("creationDate") or "") for o in orders for l in o.get("lineItems",[])}
         normalized=normalize_orders(orders)
         for line in normalized: line["createdAt"]=created_times.get((line["orderId"],line["lineItemId"]),"")
-        def read_detail(item_id):
-            xml=('<?xml version="1.0" encoding="utf-8"?><GetItemRequest xmlns="urn:ebay:apis:eBLBaseComponents"><DetailLevel>ReturnAll</DetailLevel><IncludeItemSpecifics>true</IncludeItemSpecifics><ItemID>'+item_id+'</ItemID></GetItemRequest>').encode()
-            request=Request("https://api.ebay.com/ws/api.dll",data=xml,headers={"Content-Type":"text/xml","X-EBAY-API-CALL-NAME":"GetItem","X-EBAY-API-SITEID":"3","X-EBAY-API-COMPATIBILITY-LEVEL":"1487","X-EBAY-API-IAF-TOKEN":token["token"]},method="POST")
-            return _read_bytes(request)
-        details_pending=ebay_listing_details.enrich(listings+normalized,read_detail) if not (listing_truncated or order_truncated) else len({x["listingId"] for x in listings+normalized})
+        _detail_rows.clear();_detail_rows.update((r['listingId'],r.get('sku',''))for r in listings+normalized)
+        details_pending=ebay_listing_details.enrich(listings+normalized,lambda item_id:_read_listing_detail(token["token"],item_id)) if not (listing_truncated or order_truncated) else len({x["listingId"] for x in listings+normalized})
         return {"ok":True,"environment":"production","detailsPending":details_pending,"listings":listings,"orders":normalized,"listingTruncated":listing_truncated,"orderTruncated":order_truncated,"checkedAt":datetime.now(timezone.utc).isoformat(),"note":"Active listings and orders modified in the last 30 days. Fees, refunds, older orders and physical returns require review. No marketplace changes sent."}
     except HTTPError as e:return {"ok":False,"status":"Production eBay read failed (HTTP {}).".format(e.code)}
     except (URLError,TimeoutError,OSError,ValueError,TypeError,ET.ParseError):return {"ok":False,"status":"Production eBay snapshot unavailable; keep the previous snapshot and retry."}

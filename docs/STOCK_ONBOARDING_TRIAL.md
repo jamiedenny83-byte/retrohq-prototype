@@ -1,3 +1,5 @@
+> Superseded by the [inline import trial](INLINE_IMPORT_TRIAL.md): decisions now apply immediately per row and detail batches continue automatically. The following documents the earlier popup workflow.
+
 # First import, daily stock review and eBay listing details
 
 This trial replaces the automatic first-import behaviour in the earlier shared-inventory trial. Existing saved stock, sale ledgers and seller connections are retained. No customer accounts, subscriptions, marketplace writes or shared-device storage are introduced.

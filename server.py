@@ -905,13 +905,13 @@ class H(SimpleHTTPRequestHandler):
             # Keep this port private; Seller administration retains its own PIN.
             result = item_identification.identify_photo(payload.get("image"))
             self.send_json(result,200 if result.get("ok") else 400); return
-        if u.path not in ("/api/ebay-live/start", "/api/ebay-live/snapshot", "/api/ebay-seller/start", "/api/ebay-seller/test", "/api/ebay-seller/orders"):
+        if u.path not in ("/api/ebay-live/start", "/api/ebay-live/snapshot", "/api/ebay-live/listing-details", "/api/ebay-seller/start", "/api/ebay-seller/test", "/api/ebay-seller/orders"):
             self.send_json({"ok": False, "status": "Not found."}, 404); return
         if self.headers.get("X-RetroHQ-Action") != "seller-oauth" or self.headers.get("Sec-Fetch-Site", "same-origin") != "same-origin":
             self.send_json({"ok": False, "status": "Request blocked."}, 403); return
         try:
             size = int(self.headers.get("Content-Length", "0"))
-            if size < 1 or size > 1024:
+            if size < 1 or size > (65536 if u.path=="/api/ebay-live/listing-details" else 1024):
                 self.send_json({"ok": False, "status": "Invalid request size."}, 400); return
             payload = json.loads(self.rfile.read(size).decode("utf-8"))
         except (ValueError, UnicodeError):
@@ -922,6 +922,8 @@ class H(SimpleHTTPRequestHandler):
             result = ebay_live.start_authorisation()
         elif u.path == "/api/ebay-live/snapshot":
             result = ebay_live.snapshot()
+        elif u.path == "/api/ebay-live/listing-details":
+            result = ebay_live.listing_details(payload.get("rows"))
         elif u.path == "/api/ebay-seller/start":
             result = ebay_seller.start_authorisation()
         elif u.path == "/api/ebay-seller/orders":

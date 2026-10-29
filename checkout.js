@@ -1,7 +1,7 @@
 /* Transaction amounts use integer pennies. Credit is payment, not a discount. */
 (function(root){
 'use strict';
-const available=i=>!!i&&!i.sale&&!['Sold','Packaged','Dispatched','Delivered','Completed'].includes(i.status);
+const available=i=>!!i&&!i.importHold&&!i.sale&&!['Sold','Packaged','Dispatched','Delivered','Completed'].includes(i.status);
 function pennies(value,label){if(value==null||String(value).trim()==='')throw Error('Enter '+label+'.');const n=Number(value);if(!Number.isFinite(n)||n<0||n>10000000)throw Error('Invalid '+label+'.');return Math.round(n*100);}
 function allocate(total,weights){const sum=weights.reduce((a,b)=>a+b,0);if(!sum){if(total)throw Error('Cannot allocate an amount to a zero-total basket.');return weights.map(()=>0);}const rows=weights.map((w,index)=>({index,value:Math.floor(total*w/sum),fraction:total*w/sum%1}));let left=total-rows.reduce((a,r)=>a+r.value,0);for(const r of [...rows].sort((a,b)=>b.fraction-a.fraction||a.index-b.index)){if(!left)break;r.value++;left--;}return rows.map(r=>r.value);}
 function quote(state,input){

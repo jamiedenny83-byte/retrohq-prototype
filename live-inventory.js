@@ -3,7 +3,7 @@
 'use strict';
 const copy=x=>JSON.parse(JSON.stringify(x)),obj=x=>x&&typeof x==='object'&&!Array.isArray(x);
 const key=l=>JSON.stringify(['ebay','production',l.orderId,l.lineItemId]);
-const available=i=>!i.sale&&!['Sold','Packaged','Dispatched','Delivered','Completed'].includes(i.status);
+const available=i=>!i.importHold&&!i.sale&&!['Sold','Packaged','Dispatched','Delivered','Completed'].includes(i.status);
 const identity=l=>obj(l)&&typeof l.orderId==='string'&&/^[a-zA-Z0-9._:-]+$/.test(l.orderId)&&typeof l.lineItemId==='string'&&/^[a-zA-Z0-9._:-]+$/.test(l.lineItemId);
 const valid=l=>identity(l)&&l.eligible===true&&l.paymentStatus==='PAID'&&['NONE','NOT_REQUESTED'].includes(l.cancelState)&&l.refundDetected===false&&l.currency==='GBP'&&Number.isSafeInteger(l.quantity)&&l.quantity>0&&Number.isFinite(l.price)&&l.price>=0&&/^\d{4}-\d{2}-\d{2}$/.test(l.date)&&typeof l.listingId==='string'&&typeof l.sku==='string';
 const listingKey=l=>JSON.stringify([l.listingId,l.sku||'']);
@@ -24,6 +24,7 @@ function check(state){
    if(allocatedCents!==Math.round(r.imported.price*100))throw Error('Live revenue allocation does not agree.');
   }
  }
+ for(const i of state.items)if(i.importHold&&(!obj(i.importHold)||typeof i.importHold.reason!=='string'||!Number.isFinite(Date.parse(i.importHold.heldAt))||i.sale))throw Error('Invalid held import unit.');
  for(const i of state.items)if(i.sale?.productionKey&&(!live||!live.ledger.some(r=>r.key===i.sale.productionKey&&!r.outcome&&r.itemIds.includes(i.id))))throw Error('Live sale lacks duplicate protection.');
  for(const t of state.transactions||[])if(t.source==='ebay-production'){
   const r=live?.ledger.find(r=>r.key===t.productionKey);
@@ -72,13 +73,13 @@ const plain=(s,limit=180)=>String(s||'').replace(/[<>"`\u0000-\u001f]/g,' ').rep
 function enrichUnit(next,i,l){
  const d=l.details||{},fee=next.settings?.fees?.eBay;
  if(fee&&['fixed','percent'].includes(fee.type)&&Number.isFinite(fee.value))i.sellingFeeEstimate={channel:'eBay',type:fee.type,value:fee.value,source:'Business defaults',capturedAt:next.liveEbay.checkedAt};
- if(i.importedFrom!=='ebay-production')return;
- if(l.currency==='GBP'&&Number.isFinite(l.price)&&(!i.valuation||i.valuation.source==='eBay listing price')){
+ const missingValue=i.valuation?.finalValue==null&&(i.needsValuation||i.baseMarket==null);
+ if(l.currency==='GBP'&&Number.isFinite(l.price)&&(missingValue||i.importedFrom==='ebay-production'&&!i.valuation||i.valuation?.source==='eBay listing price')){
   const value=l.price;i.baseMarket=value;i.marketIsConditionSpecific=true;i.needsValuation=false;i.valuation={...(i.valuation||{}),finalValue:value,benchmark:value,benchmarkLabel:'eBay listing asking price',source:'eBay listing price',confidence:'asking-price',timestamp:next.liveEbay.checkedAt,stale:false};
  }
  if(!i.manufacturer&&d.brand)i.manufacturer=plain(d.brand);
  if(i.category==='Uncategorised'&&d.categoryName){const name=plain(d.categoryName);i.category=/accessories|controllers/i.test(name)?'Accessory':/video games(?!.*consoles)/i.test(name)?'Video Game':/consoles/i.test(name)?'Console':name;}
- if(i.condition==='Unknown'&&d.conditionName){i.condition=plain(d.conditionName);i.acquiredCondition=i.condition;}
+ if(i.condition==='Unknown'&&d.conditionName){i.condition=plain(d.conditionName);if(i.importedFrom==='ebay-production')i.acquiredCondition=i.condition;}
  if(!i.notes&&!i.editHistory?.length&&d.description)i.notes=plain(d.description,4000);
  if(!i.barcode&&(d.ean||d.upc))i.barcode=plain(d.ean||d.upc,32);
  i.liveSnapshot={...copy(l),checkedAt:next.liveEbay.checkedAt};
