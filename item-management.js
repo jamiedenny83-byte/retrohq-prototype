@@ -25,5 +25,19 @@ function edit(item,input,now){
  }
  copy.area=area;copy.shelf=shelf;copy.location=[area,shelf].filter(Boolean).join(' / ')||'Unassigned';copy.notes=notes;copy.timeline.push(['Details edited',now]);return copy;
 }
-const api={sold,steps,stage,transition,edit};if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.RetroItems=api;
+function identify(item,input,now){
+ if(input.confirmed!==true)throw Error('Confirm that you checked this physical item.');
+ const text=(v,max=180)=>{const t=String(v||'').trim();if(t.length>max||/[<>"`\u0000-\u001f]/.test(t))throw Error('Use plain item details without markup.');return t;};
+ const title=text(input.title),category=text(input.category),platform=text(input.platform),region=text(input.region),manufacturer=text(input.manufacturer),barcode=text(input.barcode,80);
+ if(!title||!category)throw Error('Enter the product title and category.');
+ if(['Video Game','Console'].includes(category)&&!platform)throw Error('Enter the exact platform or console model.');
+ const copy=JSON.parse(JSON.stringify(item));
+ (copy.identificationHistory||(copy.identificationHistory=[])).push({date:now,before:{title:item.title,category:item.category,manufacturer:item.manufacturer||'',platform:item.platform||'',region:item.region||'',barcode:item.barcode||'',identity:item.identity||null,needsIdentification:!!item.needsIdentification}});
+ Object.assign(copy,{title,category,platform,region,manufacturer,barcode,needsIdentification:false});
+ copy.identity={confirmedProduct:title,platform,region,source:'Manual confirmation',confirmedAt:now,type:category==='Video Game'?'software':category==='Console'?'hardware':'other'};
+ if(input.catalogue&&/^\d+$/.test(input.catalogue.id)&&input.catalogue.title===title&&input.catalogue.platform===platform){copy.identity.pricechartingProductId=input.catalogue.id;copy.identity.source='Confirmed catalogue selection';}
+ (copy.timeline||(copy.timeline=[])).push(['Item identified',now+' · '+copy.identity.source+' · '+title]);
+ return copy;
+}
+const api={sold,steps,stage,transition,edit,identify};if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.RetroItems=api;
 })(typeof globalThis!=='undefined'?globalThis:this);
