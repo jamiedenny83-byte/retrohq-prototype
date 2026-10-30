@@ -18,3 +18,14 @@ The direct sales reader makes no listing-detail calls. Reads are limited to 1,00
 Technical cause: eBay's documented no-cancellation value is `NONE_REQUESTED`. The previous eligibility checks accepted only `NONE` and `NOT_REQUESTED`, so genuine paid orders were excluded. See the [official Fulfillment API schema](https://developer.ebay.com/api-docs/master/sell/fulfillment/openapi/3/sell_fulfillment_v1_oas3.json), `CancelStatus.cancelState`.
 
 Validation: 101 Node tests pass. Python: 80 tests, 79 pass and one Windows-only POSIX permissions skip. Controlled browser checks cover direct sales import, historical/current stock separation, repeat imports, receipt creation, unpaid exceptions, reload, failed-read preservation, recovery copy, and the existing inline inventory workflow across all three themes. Real-account acceptance remains the operator's next test; the agent has not pulled private live sales into the workspace.
+
+
+## Sale values and processing fees
+
+Sales now displays **Sold for** (actual item revenue) and **Marketplace fee** separately. Percentage defaults show both the rate and calculated GBP amount, labelled Estimated. Reference market values appear only when known; an old sold listing need not have a current market valuation.
+
+After updating, run **Sales → Import eBay sales** once to backfill missing default fee associations on existing records. Repeating this does not create new sales. Actual recorded fees are preserved. Check that your business settings contain the intended eBay percentage/fixed fee.
+
+Use the per-row **Review costs** button to confirm actual fees and expenses. Preparation means cleaning/repair costs; it is not the eBay percentage. eBay does not provide your purchase or preparation costs, so those remain Unknown until entered. Net profit stays under review until all costs are confirmed. Validate a known sale price, calculated fee, missing preparation amount, search and a repeat import.
+
+This update passes104 Node tests and the isolated sales-value/fee/cost-form browser checks plus the existing inline inventory regression. No aesthetic theme change, new account setup or eBay writes.

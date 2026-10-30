@@ -70,9 +70,13 @@ function allocate(next,l,ids){
 const pair=(i,l)=>i.liveListingId===l.listingId&&(i.liveSku||'')===l.sku;
 const cents=n=>Math.round(n*100);
 const plain=(s,limit=180)=>String(s||'').replace(/[<>"`\u0000-\u001f]/g,' ').replace(/\s+/g,' ').trim().slice(0,limit);
+function attachFeeDefault(next,i){
+ const fee=next.settings?.fees?.eBay;
+ if(fee&&['fixed','percent'].includes(fee.type)&&Number.isFinite(fee.value)&&fee.value>=0)i.sellingFeeEstimate={channel:'eBay',type:fee.type,value:fee.value,source:'Business defaults',capturedAt:next.liveEbay.checkedAt};
+ if(i.sale&&!i.sale.costsConfirmed&&(i.sale.feeValue==null||i.sale.feeEstimated)&&i.sellingFeeEstimate){i.sale.feeType=i.sellingFeeEstimate.type;i.sale.feeValue=i.sellingFeeEstimate.value;i.sale.feeEstimated=true;}
+}
 function enrichUnit(next,i,l){
- const d=l.details||{},fee=next.settings?.fees?.eBay;
- if(fee&&['fixed','percent'].includes(fee.type)&&Number.isFinite(fee.value))i.sellingFeeEstimate={channel:'eBay',type:fee.type,value:fee.value,source:'Business defaults',capturedAt:next.liveEbay.checkedAt};
+ const d=l.details||{};attachFeeDefault(next,i);
  const missingValue=i.valuation?.finalValue==null&&(i.needsValuation||i.baseMarket==null);
  if(l.currency==='GBP'&&Number.isFinite(l.price)&&(missingValue||i.importedFrom==='ebay-production'&&!i.valuation||i.valuation?.source==='eBay listing price')){
   const value=l.price;i.baseMarket=value;i.marketIsConditionSpecific=true;i.needsValuation=false;i.valuation={...(i.valuation||{}),finalValue:value,benchmark:value,benchmarkLabel:'eBay listing asking price',source:'eBay listing price',confidence:'asking-price',timestamp:next.liveEbay.checkedAt,stale:false};
@@ -134,7 +138,8 @@ function syncInventory(state,snapshot,options={}){
  const previous=live.inventoryBaseline||null;
  const ordersBefore=copy(live.orders);
  Object.assign(live,{listings:copy(snapshot.listings),orders:copy(snapshot.orders),checkedAt:snapshot.checkedAt,partial:!!(snapshot.listingTruncated||snapshot.orderTruncated),note:snapshot.note||'',issues:[],createdThisSync:0});
- for(const i of next.items.filter(i=>i.liveListingId)){
+ for(const i of next.items.filter(i=>i.liveListingId||i.sale?.productionKey)){
+  attachFeeDefault(next,i);
   const listing=live.listings.find(l=>pair(i,l));if(listing)enrichUnit(next,i,listing);
   if(i.sale&&i.sale.feeValue==null&&i.sellingFeeEstimate){Object.assign(i.sale,{feeType:i.sellingFeeEstimate.type,feeValue:i.sellingFeeEstimate.value,feeEstimated:true});}
  }

@@ -12,6 +12,14 @@ function economics(i){
  const revenue=Number(s.price)+Number(s.shippingRevenue),fee=s.feeType==='percent'?Number(s.price)*Number(s.feeValue)/100:Number(s.feeValue),net=round(revenue-fee-Number(s.shipping)-Number(s.packaging)-Number(s.promotion)),invested=Number(i.buy)+Number(i.processingCosts),profit=round(net-invested);
  return {profit,net,margin:revenue?profit/revenue*100:0,roi:invested?profit/invested*100:null};
 }
+function saleAmounts(i,defaultFee){
+ const s=i.sale;if(!s)return {price:null,fee:null,feeType:null,feeValue:null,estimated:false};
+ let type=s.feeType,value=s.feeValue,estimated=s.feeEstimated===true;
+ const validFee=(t,v)=>['fixed','percent'].includes(t)&&typeof v==='number'&&Number.isFinite(v)&&v>=0;
+ if(!validFee(type,value)&&!s.costsConfirmed&&['eBay','eBay Live'].includes(s.channel)&&validFee(defaultFee?.type,defaultFee?.value)){type=defaultFee.type;value=defaultFee.value;estimated=true;}
+ const price=typeof s.price==='number'&&Number.isFinite(s.price)?s.price:null;
+ return {price,fee:validFee(type,value)&&price!==null?round(type==='percent'?price*value/100:value):null,feeType:type,feeValue:value,estimated};
+}
 function queue(items,now){return items.filter(active).map(i=>({item:i,days:age(i.acquiredDate,now),listedDays:age(i.listing?.date,now),issues:[...(!amount(i.buy)||!amount(i.processingCosts)?['Purchase / preparation cost missing']:[]),...(!i.acquiredDate?['Acquisition date missing']:[]),...(!i.location||i.location==='Unassigned'?['Storage location missing']:[]),...(i.needsValuation?['Value needed']:[])]})).sort((a,b)=>(b.days??-1)-(a.days??-1));}
 function batches(items){const groups=new Map();for(const i of items){if(i.importHold||!i.batchId)continue;let g=groups.get(i.batchId);if(!g){g={id:i.batchId,name:i.batchName||i.batchId,items:[],investment:0,recovered:0,profit:0,pending:0,sold:0};groups.set(i.batchId,g);}g.items.push(i);if(amount(i.buy)&&amount(i.processingCosts)&&g.investment!==null)g.investment+=Number(i.buy);else g.investment=null;const e=economics(i);if(i.sale){g.sold++;if(e.profit===null)g.pending++;else{g.recovered+=e.net;g.profit+=e.profit;}}else if(i.saleHistory?.length||i.returns?.length)g.pending++;}return [...groups.values()].map(g=>({...g,investment:g.investment===null?null:round(g.investment),recovered:round(g.recovered),profit:round(g.profit),remaining:g.investment===null?null:round(Math.max(0,g.investment-g.recovered))}));}
 function recommendation(i,market,feePercent,margin,now){
@@ -23,6 +31,6 @@ function recommendation(i,market,feePercent,margin,now){
  const floor=Math.ceil((Number(i.buy)+Number(i.processingCosts)+Number(c.postage)+Number(c.packaging))/(1-feePercent/100-margin/100)*100)/100;
  const price=round(Math.max(floor,Number(market)));return {action:price<Number(i.listing.price)?'Review a lower asking price':'Review photos, completeness and demand before reducing',price,floor};
 }
-const api={age,active,economics,queue,batches,recommendation};if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.RetroOps=api;
+const api={age,active,economics,saleAmounts,queue,batches,recommendation};if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.RetroOps=api;
 })(typeof globalThis!=='undefined'?globalThis:this);
 
