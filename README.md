@@ -1,11 +1,18 @@
-# RetroHQ OS — Live Workflow Test 7.4
+# RetroHQ OS — Internal Prototype
 
-Internal Retrograde proof-of-concept build.
+**Current test build: operations, isolated production eBay reads and evidence-gated resale opportunities.**
 
-**Current test branch:** `retrohq-test-7.4`
+[Production setup, same-Codespace update and acceptance guide](docs/PRODUCTION_TRIAL.md). Only Sandbox is currently configured; real production seller/Browse acceptance remains pending.
 
-Start with **START_HERE.md** for the exact Codespaces commands.
+Working branch remains `retrohq-test-8.3` so the existing Codespace can update in place. Do not create a new Codespace. The requested `current` rename is deferred until its local tracking and draft PR #47 transition can be verified.
 
-Test 7.4 preserves the working Test 7.3 identification and identity-lock flow while correcting CeX catalogue selection, provider evidence presentation and Buy Check decision maths.
+- [Start / update the existing Codespace](START_HERE.md)
+- [8.4 features, limitations and Sandbox acceptance checks](docs/TEST_8_4_NOTES.md)
+- [Next-chat handover and outstanding workload](docs/HANDOVER.md)
+- [Decisions](docs/DECISIONS.md) · [Development work log](docs/WORK_LOG.md)
 
-See `docs/TEST_7_4_NOTES.md` for the regression checklist and `docs/VERSIONING.md` for the repository workflow.
+Rollback references: `retrohq-rollback-8.3-verified` and `retrohq-rollback-before-8.4`. `main` is unchanged. This is a draft trial with separate production-read code awaiting real seller acceptance.
+
+Inventory and import history are saved together in the same browser profile/site address; this is not shared multi-device storage. Existing CeX and Sandbox Seller OAuth configuration remain unchanged; production uses additional isolated settings. Never put credentials, tokens, buyer details or exported inventory backups in this public repository.
+
+Offline checks: `python -m unittest discover -s tests -v` and `node --test tests/*.test.js`. The private token-file permission test runs on Linux; it is explicitly skipped on Windows.

@@ -1,0 +1,57 @@
+/* Appearance-only trial: existing routes, record structure and actions are preserved. */
+:root{--hq-accent:#5941bd;--hq-ink:#222737;--hq-soft:#f4f3f9;--hq-surface:#fff;--hq-line:#e3e3ec;--hq-muted:#606779;--hq-tint:#eeeafa;--hq-shadow:0 3px 16px #28203e06}
+html[data-theme="dark"]{--hq-accent:#b7a5ff;--hq-ink:#eff0f8;--hq-soft:#11131d;--hq-surface:#1b1e2c;--hq-line:#34384c;--hq-muted:#b4b9cd;--hq-tint:#302849;--hq-shadow:0 3px 16px #00000018}
+html[data-theme] body{background:var(--hq-soft);color:var(--hq-ink);font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased;--panel:var(--hq-surface);--line:var(--hq-line);--muted:var(--hq-muted)}
+html[data-theme] :is(aside,header,.quick-actions,.card,.metric,.action,.modal){background:var(--hq-surface);color:var(--hq-ink);border-color:var(--hq-line)}
+aside{padding:24px 16px;overflow-y:auto}
+.brand{padding:0 8px 22px;margin-bottom:16px;border-bottom:1px solid var(--hq-line)}
+.brand strong{letter-spacing:-.5px;font-size:18px}.brand small{font-size:11px}
+html[data-theme] .logo{background:#5941bd;color:white;box-shadow:0 4px 12px #5941bd24;border-radius:11px}
+nav{gap:3px}html[data-theme] nav button{color:var(--hq-muted);font-size:14px;padding:10px 12px;border-radius:8px;line-height:1.4;min-height:40px}
+html[data-theme] nav button:hover{background:var(--hq-soft);color:var(--hq-ink)}
+html[data-theme] nav button.active{background:var(--hq-tint);color:var(--hq-accent);font-weight:700;box-shadow:inset 3px 0 var(--hq-accent)}
+header{padding:24px 32px 18px;min-height:106px;align-items:center}header h1{font-size:28px;letter-spacing:-.8px;font-weight:750}header p{font-size:14px;max-width:65ch}
+html[data-theme] .demo{color:var(--hq-muted);border-color:var(--hq-line);background:var(--hq-soft);font-size:10px;letter-spacing:.5px;padding:6px 10px}
+.quick-actions{padding:12px 32px;box-shadow:none;gap:10px}#root{padding:28px 32px 40px}
+h2,h3,h4{letter-spacing:-.35px;line-height:1.3}h3{font-size:18px}p{line-height:1.65}
+.grid{gap:20px}.card{padding:24px}.hero,.card,.metric,.action{border-radius:14px;box-shadow:var(--hq-shadow)}
+html[data-theme] .hero{background:var(--hq-surface);border-color:var(--hq-line);padding:26px 28px;border-left:4px solid var(--hq-accent)}
+.hero h2{font-size:30px;letter-spacing:-.9px}.hero p{max-width:70ch;margin-bottom:4px}
+.metric{padding:22px}.metric strong{font-size:30px;letter-spacing:-1px;font-variant-numeric:tabular-nums;margin:8px 0}.metric span{font-size:13px;font-weight:600}.metric small{font-size:12px}
+.action{padding:22px;min-height:132px}.action strong{font-size:16px}.action-icon{font-size:24px}.action span{font-size:13px}
+.btn{border-radius:8px;font-weight:600;font-size:14px;min-height:42px;padding:10px 16px;transition:background-color .15s,box-shadow .15s}
+html[data-theme] .primary{background:#5941bd;color:#fff;box-shadow:0 2px 4px #33205a12}html[data-theme] .primary:hover{background:#49339f}
+html[data-theme] .secondary{background:var(--hq-tint);color:var(--hq-accent)}html[data-theme] .secondary:hover{box-shadow:inset 0 0 0 1px var(--hq-accent)}
+html[data-theme] :is(.input,.select,textarea){background:var(--hq-surface);color:var(--hq-ink);border:1px solid #9297a8;border-radius:8px;padding:11px 12px;line-height:1.45;box-shadow:0 1px 2px #00000004}
+html[data-theme="dark"] :is(.input,.select,textarea){border-color:#666b80}
+html[data-theme] :is(input,textarea)::placeholder{color:var(--hq-muted);opacity:1}
+html[data-theme] :is(.muted,header p,.brand small,.hero p,.metric span,.metric small,.action span,.table th,.field label,.candidate-card span,.identity-lock small,.provider-prices small,.cex-price-grid small,.sale-price small,.sale-stock>span,.sale-details dt,.market-result-head span,.counter-search>label,.buy-grade-card label){color:var(--hq-muted)}
+label,.field label{font-size:14px;font-weight:550}.formgrid{gap:20px}.head{gap:18px;margin-bottom:12px}.toolbar{gap:10px;margin-bottom:22px}
+.table th{font-size:11px;text-transform:uppercase;letter-spacing:.65px;font-weight:700;white-space:nowrap}.table td{font-size:14px;line-height:1.5;font-variant-numeric:tabular-nums}
+html[data-theme] .table th{background:var(--hq-soft)}html[data-theme] :is(.table th,.table td,.row,.tabs,.bundle-row){border-color:var(--hq-line)}
+.table th,.table td{padding:16px 14px}.table td strong{font-weight:650}html[data-theme] .click:hover{background:var(--hq-soft)}
+html[data-theme] :is(.notice,.decision-panel>div,.identity-lock,.smart-breakdown,.lifecycle-strip,.stock-mix span,.market-result-head,.provider-prices span,.cex-price-grid span,.completeness-grid span,.buy-grade-card,.grade-hint){background:var(--hq-soft);color:var(--hq-ink);border-color:var(--hq-line)}
+html[data-theme] :is(.candidate-card,.cex-variant-card,.system-stock button,.quality-buttons button,.accessory-checks label){background:var(--hq-surface);color:var(--hq-ink);border-color:#9297a8}
+html[data-theme] .quality-buttons button.active{background:#5941bd;color:#fff;border-color:#5941bd}
+.pill,.cex-grade{font-weight:600;font-size:11px;line-height:1.5;border-radius:6px;padding:4px 8px}
+html[data-theme] :is(.pill,.cex-grade,.identity-tags span){background:var(--hq-tint);color:var(--hq-accent)}
+html[data-theme] :is(.pill.good,.margin-green,.completeness-actions .included,.decision-answer.buy){background:#e3f3eb;color:#176244}
+html[data-theme] :is(.pill.warn,.margin-yellow,.unresolved){background:#fff1d4;color:#795200}
+html[data-theme] :is(.margin-red,.decision-answer.over){background:#fbe8e9;color:#a02c3a}
+html[data-theme="dark"] :is(.pill.good,.margin-green,.completeness-actions .included,.decision-answer.buy){background:#183b30;color:#a1e0bd}
+html[data-theme="dark"] :is(.pill.warn,.margin-yellow,.unresolved){background:#40341e;color:#f5d68c}
+html[data-theme="dark"] :is(.margin-red,.decision-answer.over){background:#472731;color:#ffb3bd}
+html[data-theme] :is(.link-button,.candidate-card small,.sale-details summary,.workspace-tools summary,.tab.active){color:var(--hq-accent)}
+html[data-theme] .candidate-card small{background:var(--hq-tint)}html[data-theme] .cex-select{background:#5941bd;color:#fff}
+html[data-theme] .evidence-details>summary{background:var(--hq-soft);color:var(--hq-accent);font-size:14px}
+html[data-theme] :is(.action-required){background:var(--hq-tint);color:var(--hq-ink);border-color:var(--hq-accent)}
+html[data-theme] :is(.evidence-card,.evidence-panel,.auto-status,.provider-warning,.evidence-details,.identify-box,.market-evidence,.live-research){border-color:var(--hq-line)}
+html[data-theme] .row button{color:var(--hq-ink)}html[data-theme] .stock-mix strong{color:var(--hq-ink)}
+html[data-theme] .segmented button{background:var(--hq-surface);color:var(--hq-muted);border-color:var(--hq-line)}html[data-theme] .segmented button.active{background:var(--hq-tint);color:var(--hq-accent);border-color:var(--hq-accent)}
+.modal{border-radius:16px;padding:28px;box-shadow:0 24px 80px #0004}.backdrop{background:#11132299}.modal h2{font-size:24px;letter-spacing:-.6px}
+html[data-theme] :is(button,a,summary,input,select,textarea):focus-visible{outline:3px solid var(--hq-accent);outline-offset:3px}
+html[data-theme] #menu{color:var(--hq-ink)}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{transition:none!important;scroll-behavior:auto!important}}
+/* Keep the existing responsive behaviour for this appearance trial. */
+@media(max-width:950px){header{padding:20px 22px}.quick-actions{padding:12px 22px}#root{padding:22px}.demo{max-width:180px;text-align:center}}
+@media(max-width:620px){header{padding:18px 14px;min-height:90px}header h1{font-size:24px}.quick-actions{padding:10px 14px}#root{padding:16px}.card,.metric,.action{padding:18px}.hero{padding:20px!important}.hero h2{font-size:25px}.modal{padding:20px}.formgrid{gap:16px}}
