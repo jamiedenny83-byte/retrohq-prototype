@@ -5,7 +5,7 @@ const copy=x=>JSON.parse(JSON.stringify(x)),obj=x=>x&&typeof x==='object'&&!Arra
 const key=l=>JSON.stringify(['ebay','production',l.orderId,l.lineItemId]);
 const available=i=>!i.importHold&&!i.sale&&!['Sold','Packaged','Dispatched','Delivered','Completed'].includes(i.status);
 const identity=l=>obj(l)&&typeof l.orderId==='string'&&/^[a-zA-Z0-9._:-]+$/.test(l.orderId)&&typeof l.lineItemId==='string'&&/^[a-zA-Z0-9._:-]+$/.test(l.lineItemId);
-const valid=l=>identity(l)&&l.eligible===true&&l.paymentStatus==='PAID'&&['NONE','NOT_REQUESTED'].includes(l.cancelState)&&l.refundDetected===false&&l.currency==='GBP'&&Number.isSafeInteger(l.quantity)&&l.quantity>0&&Number.isFinite(l.price)&&l.price>=0&&/^\d{4}-\d{2}-\d{2}$/.test(l.date)&&typeof l.listingId==='string'&&typeof l.sku==='string';
+const valid=l=>identity(l)&&l.eligible===true&&l.paymentStatus==='PAID'&&['NONE','NOT_REQUESTED','NONE_REQUESTED'].includes(l.cancelState)&&l.refundDetected===false&&l.currency==='GBP'&&Number.isSafeInteger(l.quantity)&&l.quantity>0&&Number.isFinite(l.price)&&l.price>=0&&/^\d{4}-\d{2}-\d{2}$/.test(l.date)&&typeof l.listingId==='string'&&typeof l.sku==='string';
 const listingKey=l=>JSON.stringify([l.listingId,l.sku||'']);
 const changed=(a,b)=>!valid(a)||['price','quantity','sku','listingId','orderFee','orderShipping','date'].some(k=>a[k]!==b[k]);
 function check(state){
@@ -132,6 +132,7 @@ function syncInventory(state,snapshot,options={}){
  check(state);snapshotValid(snapshot);if(state.liveEbay?.checkedAt&&Date.parse(snapshot.checkedAt)<Date.parse(state.liveEbay.checkedAt))throw Error('An older snapshot cannot replace the latest inventory.');
  const next=copy(state),live=next.liveEbay||(next.liveEbay={listings:[],orders:[],ledger:[]});
  const previous=live.inventoryBaseline||null;
+ const ordersBefore=copy(live.orders);
  Object.assign(live,{listings:copy(snapshot.listings),orders:copy(snapshot.orders),checkedAt:snapshot.checkedAt,partial:!!(snapshot.listingTruncated||snapshot.orderTruncated),note:snapshot.note||'',issues:[],createdThisSync:0});
  for(const i of next.items.filter(i=>i.liveListingId)){
   const listing=live.listings.find(l=>pair(i,l));if(listing)enrichUnit(next,i,listing);
@@ -143,9 +144,10 @@ function syncInventory(state,snapshot,options={}){
   if(row){row.latest=copy(l);if(!row.outcome){if(changed(l,row.imported)){row.review=true;for(const id of row.itemIds)next.items.find(i=>i.id===id).sale.reviewNeeded=true;}
     else if(l.fulfillmentStatus==='FULFILLED')for(const id of row.itemIds){const i=next.items.find(i=>i.id===id);if(['Sold','Packaged'].includes(i.status)){i.status='Dispatched';i.sale.status='Dispatched';}}
    }receipt(next,row);continue;}
-  if(live.partial||!valid(l)||!/^\d+$/.test(l.listingId)||options.deferredOrders?.includes(key(l)))continue;
-  if(!l.sku&&live.listings.some(x=>x.listingId===l.listingId&&x.sku)){live.issues.push('Order '+l.orderId+': variation identity is missing. Match it manually.');continue;}
-  if(recordedSale(next,l))continue;
+  if(live.partial||!valid(l)||options.deferredOrders?.includes(key(l)))continue;
+  const exactIdentity=/^\d+$/.test(l.listingId)&&!(!l.sku&&live.listings.some(x=>x.listingId===l.listingId&&x.sku));
+  if(!exactIdentity&&!options.importSalesHistory){live.issues.push('Order '+l.orderId+': variation identity is missing. Match it manually.');continue;}
+  if(exactIdentity&&recordedSale(next,l))continue;
   // Bootstrap orders predate the current remaining stock. Never consume that
   // stock a second time. Thereafter only newly created orders consume linked units;
   // a previously unseen older order is imported as historical stock instead.
@@ -155,13 +157,13 @@ function syncInventory(state,snapshot,options={}){
   const remaining=live.listings.find(x=>x.listingId===l.listingId&&x.sku===l.sku)?.quantity??0;
   const decline=Number.isSafeInteger(priorQuantity)?Math.max(0,priorQuantity-remaining):0;
   const observedSale=decline-(consumed.get(listingKey(l))||0)>=l.quantity;
-  const units=!options.forceNewOrders?.includes(key(l))&&(current||sameDay||observedSale)?next.items.filter(i=>available(i)&&pair(i,l)).slice(0,l.quantity):[];
-  if(options.deferNew&&units.length<l.quantity&&!options.approvedOrders?.includes(key(l))){live.issues.push('Order '+l.orderId+': match existing stock or confirm unrecorded sold units in Stock review.');continue;}
+  const units=exactIdentity&&!options.forceNewOrders?.includes(key(l))&&(current||sameDay||(!options.ordersOnly&&observedSale&&(!options.importSalesHistory||ordersBefore.some(p=>key(p)===key(l)&&p.paymentStatus!=='PAID'))))?next.items.filter(i=>available(i)&&pair(i,l)).slice(0,l.quantity):[];
+  if(options.deferNew&&!options.importSalesHistory&&units.length<l.quantity&&!options.approvedOrders?.includes(key(l))){live.issues.push('Order '+l.orderId+': match existing stock or confirm unrecorded sold units in Stock review.');continue;}
   consumed.set(listingKey(l),(consumed.get(listingKey(l))||0)+units.length);
   while(units.length<l.quantity)units.push(importUnit(next,{...l,price:null,...(live.listings.find(x=>x.listingId===l.listingId&&x.sku===l.sku)||{})},'order'));
   allocate(next,l,units.map(i=>i.id));receipt(next,live.ledger.at(-1));
  }
- if(!live.partial){
+ if(!live.partial&&!options.ordersOnly){
   for(const l of live.listings){
    const units=next.items.filter(i=>available(i)&&pair(i,l));
    if(l.quantity===null){live.issues.push('Listing '+l.listingId+': quantity unknown; no stock created.');continue;}
@@ -178,7 +180,7 @@ function syncInventory(state,snapshot,options={}){
   }
   for(const i of next.items.filter(i=>available(i)&&i.liveListingId))if(!live.listings.some(l=>pair(i,l))){i.liveSnapshot={status:'Not in active snapshot — verify on eBay',checkedAt:live.checkedAt};live.issues.push('Item '+i.id+': listing no longer active. Verify physical stock; it is retained.');}
   live.inventoryBaseline={checkedAt:live.checkedAt,quantities:[...(previous?.quantities||[]).filter(p=>!live.listings.some(l=>pair({liveListingId:p.listingId,liveSku:p.sku},l))),...live.listings.map(l=>({listingId:l.listingId,sku:l.sku,quantity:l.quantity}))]};
- }else live.issues.push('Partial snapshot: new inventory and sales imports paused. Existing order changes still require review.');
+ }else if(live.partial)live.issues.push('Partial snapshot: new inventory and sales imports paused. Existing order changes still require review.');
  delete live.createdThisSync;
  return check(next);
 }

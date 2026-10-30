@@ -305,7 +305,7 @@ def normalize_orders(orders):
                 "orderFee":_order_money(order.get("totalMarketplaceFee")),
                 "orderShipping":_order_money((order.get("pricingSummary") or {}).get("deliveryCost")),
                 "orderLineCount":len(lines),
-                "eligible":payment=="PAID" and cancellation in ("NONE","NOT_REQUESTED") and
+                "eligible":payment=="PAID" and cancellation in ("NONE","NOT_REQUESTED","NONE_REQUESTED") and
                   not refund_detected and quantity>0 and price is not None,
                 "feeStatus":"Order-level evidence only; confirm allocation, postage and packaging separately",
             })

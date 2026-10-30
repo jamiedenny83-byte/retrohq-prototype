@@ -905,7 +905,7 @@ class H(SimpleHTTPRequestHandler):
             # Keep this port private; Seller administration retains its own PIN.
             result = item_identification.identify_photo(payload.get("image"))
             self.send_json(result,200 if result.get("ok") else 400); return
-        if u.path not in ("/api/ebay-live/start", "/api/ebay-live/snapshot", "/api/ebay-live/listing-details", "/api/ebay-seller/start", "/api/ebay-seller/test", "/api/ebay-seller/orders"):
+        if u.path not in ("/api/ebay-live/start", "/api/ebay-live/snapshot", "/api/ebay-live/orders", "/api/ebay-live/listing-details", "/api/ebay-seller/start", "/api/ebay-seller/test", "/api/ebay-seller/orders"):
             self.send_json({"ok": False, "status": "Not found."}, 404); return
         if self.headers.get("X-RetroHQ-Action") != "seller-oauth" or self.headers.get("Sec-Fetch-Site", "same-origin") != "same-origin":
             self.send_json({"ok": False, "status": "Request blocked."}, 403); return
@@ -922,6 +922,8 @@ class H(SimpleHTTPRequestHandler):
             result = ebay_live.start_authorisation()
         elif u.path == "/api/ebay-live/snapshot":
             result = ebay_live.snapshot()
+        elif u.path == "/api/ebay-live/orders":
+            result = ebay_live.sales_history(payload.get("days",90))
         elif u.path == "/api/ebay-live/listing-details":
             result = ebay_live.listing_details(payload.get("rows"))
         elif u.path == "/api/ebay-seller/start":

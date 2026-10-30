@@ -24,9 +24,25 @@ function install(c){
  }
  function orderAt(n){const orders=[...live().orders];for(const r of live().ledger)if(!orders.some(x=>RetroLive.key(x)===r.key))orders.push(r.latest||r.imported);return orders[n];}
  async function refresh(){if(c.demo||!$('#liveConnectionStatus'))return;const box=$('#liveConnectionStatus');try{const response=await c.fetch('/api/ebay-live/status'),d=await response.json();box.textContent='Production · '+d.status+(d.missing?.length?' · Setup needed: '+d.missing.join(', '):'');}catch{box.textContent='Production connection status unavailable.';}}
- async function action(path){if(c.demo||busy)return null;const input=$('#liveAdminPin'),pin=input?.value;if(!pin){alert('Enter your private administrator PIN.');return null;}input.value='';busy=true;message='Contacting production eBay…';const status=$('#liveConnectionStatus');if(status)status.textContent=message;
-  try{const response=await c.fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-RetroHQ-Action':'seller-oauth'},body:JSON.stringify({pin})}),d=await response.json();if(!response.ok||!d.ok)throw Error(d.status||'Production request failed.');return d;}catch(error){message=error.message;return null;}finally{busy=false;}
+ async function action(path,extra={}){if(c.demo||busy)return null;const input=$('#liveAdminPin'),pin=input?.value;if(!pin){alert('Enter your private administrator PIN.');return null;}input.value='';busy=true;message='Contacting production eBay…';const status=$('#liveConnectionStatus');if(status)status.textContent=message;
+  try{const response=await c.fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-RetroHQ-Action':'seller-oauth'},body:JSON.stringify({...extra,pin})}),d=await response.json();if(!response.ok||!d.ok)throw Error(d.status||'Production request failed.');return d;}catch(error){message=error.message;return null;}finally{busy=false;}
  }
+ function salesView(){
+  if(c.demo)return '';
+  const l=live(),pending=l.orders.filter(x=>!l.ledger.some(r=>r.key===RetroLive.key(x))),review=l.ledger.filter(r=>r.review&&!r.outcome);
+  return '<div class="card"><h3>eBay sales</h3><p>Paid orders appear here automatically on import. Historical sold records stay separate from current available stock. Purchase costs and estimated fees still need checking.</p><div class="toolbar"><input id="liveAdminPin" class="input" type="password" autocomplete="off" aria-label="Production administrator PIN" placeholder="Private administrator PIN"><select id="salesHistoryDays" class="select" aria-label="eBay sales history range">'+[[30,'30 days'],[90,'90 days'],[365,'1 year'],[730,'2 years']].map(([v,t])=>'<option value="'+v+'" '+((l.salesHistoryDays||90)===v?'selected':'')+'>'+t+'</option>').join('')+'</select><button class="btn primary" onclick="liveSalesSync()" '+(busy?'disabled':'')+'>Import eBay sales</button><button class="btn secondary" onclick="go(\'production\')">Stock links &amp; order review</button></div><p role="status">'+e(message)+'</p><p>'+l.ledger.filter(r=>!r.outcome).length+' paid order lines recorded · '+pending.length+' unimported order lines · '+review.length+' changed orders need review.</p><p>Sales history checked: '+e(l.salesHistoryCheckedAt?new Date(l.salesHistoryCheckedAt).toLocaleString('en-GB'):'Not yet')+'</p>'+(pending.length||review.length?'<details><summary>Payment and order exceptions</summary>'+pending.map(x=>'<p>'+e(x.orderId)+' · '+e(x.title)+' · '+e(x.paymentStatus)+' / '+e(x.cancelState)+(x.refundDetected?' · refund detected':'')+' · '+(x.currency||'unsupported currency')+'</p>').join('')+review.map(r=>'<p>'+e(r.imported.orderId)+' · previously recorded order changed; review before adjusting revenue or returning stock.</p>').join('')+'</details>':'')+'</div>';
+ }
+ root.liveSalesSync=async()=>{
+  const days=Number($('#salesHistoryDays')?.value||90),d=await action('/api/ebay-live/orders',{days});if(!d){c.render();return;}
+  try{
+   if(d.orderTruncated)throw Error('More than 1,000 orders returned. Choose a shorter history range; no sales were imported.');
+   const before=live().ledger.length,snapshot={...d,listings:live().listings||[],listingTruncated:false};
+   const next=RetroLive.reconcile(state(),snapshot,{deferNew:true,importSalesHistory:true,ordersOnly:true});
+   next.liveEbay.salesHistoryCheckedAt=d.checkedAt;next.liveEbay.salesHistoryDays=days;next.liveEbay.salesHistoryVersion=1;
+   commit(next);c.showAllSales?.();message=(live().ledger.length-before)+' new paid order lines imported. Repeat imports do not duplicate sales. Review actual costs before relying on profit.';
+  }catch(error){message='Previous saved workspace retained. '+error.message;}
+  c.render();
+ };
  root.liveConnect=async()=>{const d=await action('/api/ebay-live/start');if(d&&/^https:\/\/auth\.ebay\.com\/oauth2\/authorize\?/.test(d.authorizeUrl))location.assign(d.authorizeUrl);else c.render();};
  root.liveStopDetails=()=>{stopDetails=true;detailsController?.abort();};
  root.liveSync=async()=>{
@@ -34,7 +50,7 @@ function install(c){
   busy=true;stopDetails=false;detailsController=new AbortController();const cancel=$('#liveFetchCancel');if(cancel)cancel.hidden=false;
   try{
    const enriched=await RetroListingLoader.complete(d,async rows=>{const response=await c.fetch('/api/ebay-live/listing-details',{method:'POST',headers:{'Content-Type':'application/json','X-RetroHQ-Action':'seller-oauth'},body:JSON.stringify({pin,rows}),signal:detailsController.signal});const data=await response.json();if(!response.ok||!data.ok)throw Error(data.status||'Listing details unavailable.');return data;},progress=>{const box=$('#liveFetchProgress');if(box)box.textContent='Loading eBay details: '+progress.done+' / '+progress.total+' listings. Batches continue automatically.';},()=>stopDetails);
-   commit(RetroStockSync.dailyInline(state(),enriched));message='eBay fetched. Add or link each new line below; accepted units appear in Inventory immediately. '+enriched.detailsMessage;
+   commit(RetroStockSync.dailyInline(state(),enriched));message='eBay fetched. Paid orders are recorded in Sales. Add or link each new stock line below; accepted units appear in Inventory immediately. '+enriched.detailsMessage;
   }catch(error){message='Previous saved workspace retained. '+error.message;}
   finally{pin=null;detailsController=null;busy=false;c.render();}
  };
@@ -66,7 +82,7 @@ function install(c){
  root.opCexSelect=async n=>{if(c.demo||busy)return;const activeDraft=draft,box=$('#opCexEvidence');const x=cexCandidates[n];if(!x)return;busy=true;try{const response=await c.fetch('/api/opportunity-cex?'+new URLSearchParams({q:$('#op-cexQuery').value,id:x.productId})),d=await response.json();if(!d.ok||!d.verified)throw Error(d.status||'Cash quote unavailable.');if(draft!==activeDraft||$('#opCexEvidence')!==box)return;draft.cex=d;draft.identityConfirmed=false;$('#op-identityConfirmed').checked=false;$('#opCexEvidence').innerHTML=cexHtml();}catch(error){if($('#opCexEvidence')===box)box.textContent=error.message;}finally{busy=false;}};
  root.opSave=()=>{if(busy)return;try{const r={...draft,costs:{}};for(const k of ['title','platform','condition','completeness','url'])r[k]=$('#op-'+k).value.trim();r.category=$('#op-category').value;for(const k of RetroOpportunities.costs){const raw=$('#op-cost-'+k).value;r.costs[k]=raw===''?null:Number(raw);if(r.costs[k]!==null&&(!Number.isFinite(r.costs[k])||r.costs[k]<0))throw Error('Costs must be positive or explicit zero.');}r.minProfit=Number($('#op-minProfit').value);if(!Number.isFinite(r.minProfit)||r.minProfit<0)throw Error('Enter a valid minimum profit.');r.identityConfirmed=$('#op-identityConfirmed').checked;r.available=$('#op-available').checked;r.checkedAt=r.available?new Date().toISOString():r.checkedAt;r.query=$('#op-cexQuery').value.trim();if(!r.title||!safeUrl(r.url))throw Error('Enter an offer title and a valid https://www.ebay.co.uk/itm/ item URL.');const rows=(state().opportunities?.rows||[]).filter(x=>x.id!==r.id);rows.push(r);c.commit({...state(),opportunities:{rows}});c.close();c.render();}catch(error){alert(error.message);}};
  root.opRemove=n=>{if(confirm('Remove this saved research offer?')){const rows=state().opportunities.rows.slice();rows.splice(n,1);c.commit({...state(),opportunities:{rows}});c.render();}};
- return {liveView,opportunityView,refresh,get busy(){return busy;}};
+ return {liveView,salesView,opportunityView,refresh,get busy(){return busy;}};
 }
 root.RetroMarketplace={install};
 })(typeof globalThis!=='undefined'?globalThis:this);

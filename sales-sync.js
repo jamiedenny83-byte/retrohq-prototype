@@ -4,7 +4,7 @@
 const clone = value => JSON.parse(JSON.stringify(value));
 const key = line => JSON.stringify(['ebay', 'sandbox', line.orderId, line.lineItemId]);
 const available = item => !item.importHold && !item.sale && !['Sold','Packaged','Dispatched','Delivered','Completed'].includes(item.status);
-const valid = line => line.paymentStatus === 'PAID' && ['NONE','NOT_REQUESTED'].includes(line.cancelState) &&
+const valid = line => line.paymentStatus === 'PAID' && ['NONE','NOT_REQUESTED','NONE_REQUESTED'].includes(line.cancelState) &&
   !line.refundDetected && line.currency === 'GBP' && Number.isSafeInteger(line.quantity) && line.quantity > 0 &&
   Number.isFinite(line.price) && line.price >= 0 && line.eligible === true;
 function ledger(state) { return state.ebaySync || (state.ebaySync = {lines:[], lastSync:null}); }

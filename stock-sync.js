@@ -113,8 +113,8 @@ function applyOne(state,kind,key,action,ids=[],addRemaining=false){
 }
 function dailyInline(state,snapshot){
  const safe=cleanSnapshot(snapshot);
- let next=L.reconcile(state,safe,{deferNew:true});next=holdOverlaps(next,safe);
- next.liveEbay.inlineVersion=1;next.liveEbay.duplicateListingGroups=copy(safe.duplicateListingGroups);next=begin(next,safe);if(!rows(next).length)next.liveEbay.stockSetup=next.liveEbay.stockSetup||{completed:true,completedAt:safe.checkedAt};
+ let next=L.reconcile(state,safe,{deferNew:true,importSalesHistory:true});next=holdOverlaps(next,safe);
+ next.liveEbay.salesHistoryVersion=1;next.liveEbay.inlineVersion=1;next.liveEbay.duplicateListingGroups=copy(safe.duplicateListingGroups);next=begin(next,safe);if(!rows(next).length)next.liveEbay.stockSetup=next.liveEbay.stockSetup||{completed:true,completedAt:safe.checkedAt};
  return next;
 }
 
