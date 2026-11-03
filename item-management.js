@@ -36,6 +36,10 @@ function identify(item,input,now){
  Object.assign(copy,{title,category,platform,region,manufacturer,barcode,needsIdentification:false});
  copy.identity={confirmedProduct:title,platform,region,source:'Manual confirmation',confirmedAt:now,type:category==='Video Game'?'software':category==='Console'?'hardware':'other'};
  if(input.catalogue&&/^\d+$/.test(input.catalogue.id)&&input.catalogue.title===title&&input.catalogue.platform===platform){copy.identity.pricechartingProductId=input.catalogue.id;copy.identity.source='Confirmed catalogue selection';}
+ const ref=input.ebayReference;
+ if(ref&&/^v1\|\d{6,20}\|\d{1,20}$/.test(ref.itemId)&&ref.title===title&&ref.platform===platform&&ref.manufacturer===manufacturer&&ref.barcode===barcode&&typeof ref.url==='string'&&/^https:\/\/(?:www\.)?ebay\.co\.uk\/itm\/[a-zA-Z0-9/?&=._%+|\-]+$/.test(ref.url)&&Number.isFinite(Date.parse(ref.checkedAt))){
+  copy.identity.source='Confirmed eBay reference';copy.identity.ebayReference={itemId:ref.itemId,url:ref.url,checkedAt:ref.checkedAt};
+ }
  (copy.timeline||(copy.timeline=[])).push(['Item identified',now+' · '+copy.identity.source+' · '+title]);
  return copy;
 }

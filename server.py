@@ -8,6 +8,7 @@ import ebay_live
 import ebay_seller
 import item_identification
 import market_insights
+import market_overview
 
 ROOT = Path(__file__).resolve().parent
 PC_PRODUCT = "https://www.pricecharting.com/api/product"
@@ -23,6 +24,7 @@ _cex_health = {"checked": False, "ok": False, "status": "Not tested"}
 # eBay Browse API — UK active-listing evidence.
 # Secrets stay server-side in Codespaces/environment variables.
 _ebay_token_cache = {"token": None, "expires": 0, "client": None, "environment": None}
+_ebay_marketing_token_cache = {}
 
 def _ebay_base():
     return "https://api.sandbox.ebay.com" if os.environ.get("EBAY_ENV","production").lower()=="sandbox" else "https://api.ebay.com"
@@ -53,20 +55,23 @@ def _ebay_market_credentials():
     return {"ok":True,"client":client,"secret":secret,"base":_ebay_base(),
             "environment":os.environ.get("EBAY_ENV","production").lower(),"source":"EBAY"}
 
-def ebay_access_token():
+def ebay_access_token(scope="https://api.ebay.com/oauth/api_scope"):
+    if scope not in ("https://api.ebay.com/oauth/api_scope","https://api.ebay.com/oauth/api_scope/buy.marketing"):
+        return {"ok":False,"status":"Unsupported application scope"}
+    cache = _ebay_token_cache if scope.endswith("api_scope") else _ebay_marketing_token_cache
     config = _ebay_market_credentials()
     if not config.get("ok"): return config
     now=time.time()
-    signature=hashlib.sha256((config['client']+'\0'+config['secret']+'\0'+config['environment']).encode()).hexdigest()
-    if (_ebay_token_cache.get("token") and
-        _ebay_token_cache.get("client")==config["client"] and
-        _ebay_token_cache.get("environment")==config["environment"] and
-        _ebay_token_cache.get('signature')==signature and
-        now < _ebay_token_cache.get("expires",0)-60):
-        return {"ok":True,"token":_ebay_token_cache["token"],"base":config["base"],
+    signature=hashlib.sha256((config['client']+'\0'+config['secret']+'\0'+config['environment']+'\0'+scope).encode()).hexdigest()
+    if (cache.get("token") and
+        cache.get("client")==config["client"] and
+        cache.get("environment")==config["environment"] and
+        cache.get('signature')==signature and
+        now < cache.get("expires",0)-60):
+        return {"ok":True,"token":cache["token"],"base":config["base"],
                 "environment":config["environment"]}
     basic=base64.b64encode(f"{config['client']}:{config['secret']}".encode()).decode()
-    body=urlencode({"grant_type":"client_credentials","scope":"https://api.ebay.com/oauth/api_scope"}).encode()
+    body=urlencode({"grant_type":"client_credentials","scope":scope}).encode()
     req=Request(config["base"]+"/identity/v1/oauth2/token",data=body,headers={
         "Authorization":"Basic "+basic,
         "Content-Type":"application/x-www-form-urlencoded"
@@ -76,7 +81,7 @@ def ebay_access_token():
             data=json.loads(r.read().decode())
         token=data.get("access_token")
         if not token: return {"ok":False,"status":"OAuth error","detail":"eBay did not return an application access token."}
-        _ebay_token_cache.update(token=token,expires=now+int(data.get("expires_in",7200)),
+        cache.update(token=token,expires=now+int(data.get("expires_in",7200)),
                                  client=config["client"],environment=config["environment"],signature=signature)
         return {"ok":True,"token":token,"base":config["base"],"environment":config["environment"]}
     except HTTPError as e:
@@ -1040,6 +1045,25 @@ class H(SimpleHTTPRequestHandler):
                 (p.get("grade") or ["cib"])[0], pc_call, pc_detail, ebay_browse_search,
                 infer_intent, candidate_allowed, PC_PRODUCTS, _cex_platforms, _cex_match_words)
             self.send_json(result); return
+        if u.path == '/api/market-overview':
+            p=parse_qs(u.query)
+            self.send_json(market_overview.overview((p.get('category') or ['games'])[0],ebay_access_token));return
+        if u.path == '/api/identity-detail':
+            p=parse_qs(u.query)
+            self.send_json(market_overview.identity_detail((p.get('item') or [''])[0],ebay_access_token));return
+        if u.path == '/api/identity-search':
+            p=parse_qs(u.query);query=(p.get('q') or [''])[0].strip()
+            if not 2<=len(query)<=200:
+                self.send_json({'ok':False,'status':'Enter a product name (2–200 characters).'},400);return
+            d=ebay_browse_search(query,12)
+            if not d.get('ok') or d.get('environment')!='production':
+                self.send_json({'ok':False,'status':d.get('status','Production eBay search unavailable'),'detail':d.get('detail','Live UK access is needed for item suggestions.')});return
+            candidates=[]
+            for x in d.get('items',[]):
+                if not re.fullmatch(r'v1\|\d{6,20}\|\d{1,20}',str(x.get('itemId',''))) or not market_overview.safe_listing_url(x.get('itemWebUrl')):continue
+                candidates.append({'id':x['itemId'],'title':str(x.get('title','Item'))[:250],'condition':str(x.get('condition','Not supplied'))[:100],
+                    'asking':x.get('price') if x.get('currency')=='GBP' else None,'url':x['itemWebUrl']})
+            self.send_json({'ok':True,'source':'eBay UK active listings','candidates':candidates,'note':'Identification suggestions, not verified catalogue records or sold values. Check the physical item.'});return
         if u.path == "/api/market-search":
             p = parse_qs(u.query); q=(p.get("q") or [""])[0].strip(); barcode=(p.get("barcode") or [""])[0].strip(); selected_id=(p.get("id") or [""])[0].strip(); cex_grade=(p.get("cexGrade") or [""])[0].strip() or None; cex_id=(p.get("cexId") or [""])[0].strip() or None
             lookup = pricecharting_lookup(q, barcode, selected_id)

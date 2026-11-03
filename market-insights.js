@@ -3,7 +3,7 @@
 'use strict';
 const clone=x=>JSON.parse(JSON.stringify(x)),day=86400000;
 const starters=['Silent Hill 2 PS2','The Simpsons Hit and Run PS2','Pokemon Emerald Game Boy Advance','Pokemon Crystal Game Boy Color','Mario Kart Double Dash GameCube','The Legend of Zelda Wind Waker GameCube','Paper Mario Thousand Year Door GameCube','Super Mario Sunshine GameCube','Resident Evil 4 GameCube','Metroid Prime GameCube'];
-const empty=()=>({version:1,targets:starters.map((query,n)=>({id:'starter-'+n,query,grade:'cib',productId:null,observations:[],candidates:[],status:'Not checked'}))});
+const empty=()=>({version:1,targets:[]});
 function validate(s){
  if(!s||s.version!==1||!Array.isArray(s.targets)||s.targets.length>30)throw Error('Invalid market watchlist.');
  const ids=new Set();for(const t of s.targets){if(!t||typeof t.id!=='string'||ids.has(t.id)||typeof t.query!=='string'||t.query.length<2||t.query.length>180||!['loose','cib','new'].includes(t.grade)||t.productId!=null&&!/^\d{1,16}$/.test(t.productId)||!Array.isArray(t.observations)||t.observations.length>1080||!Array.isArray(t.candidates)||t.candidates.length>6)throw Error('Invalid tracked market item.');ids.add(t.id);
