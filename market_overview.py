@@ -1,7 +1,7 @@
 """Official category market feeds, independent of owned stock and watchlists."""
 from datetime import datetime, timezone
 from urllib.request import Request, urlopen
-from urllib.parse import urlencode, quote
+from urllib.parse import urlencode, quote, urlparse, parse_qs
 from urllib.error import HTTPError
 import json
 import math
@@ -24,8 +24,53 @@ def amount(value):
         return round(n,2) if math.isfinite(n) and n>=0 else None
     except (ValueError,TypeError): return None
 
-def safe_listing_url(value):
-    return value if isinstance(value,str) and re.fullmatch(r'https://(?:www\.)?ebay\.co\.uk/itm/[a-zA-Z0-9/?&=._%+|\-]+',value) else None
+def safe_listing_url(value, item_id=None):
+    """Validate the upstream item link, then strip tracking and canonicalise to UK."""
+    if not isinstance(value,str) or len(value)>8192 or re.search(r'\s|[\x00-\x1f\x7f]',value):return None
+    try:
+        u=urlparse(value)
+        if u.scheme!='https' or u.hostname not in ('ebay.co.uk','www.ebay.co.uk','m.ebay.co.uk','ebay.com','www.ebay.com','m.ebay.com'):return None
+        if u.username is not None or u.password is not None or u.port not in (None,443):return None
+        match=re.fullmatch(r'/itm/(?:[^/]+/)?(\d{6,20})/?',u.path)
+        if not match:return None
+        legacy=match.group(1);variation=None
+        if item_id is not None:
+            identity=re.fullmatch(r'v1\|(\d{6,20})\|(\d{1,20})',str(item_id))
+            if not identity or identity.group(1)!=legacy:return None
+            variation=identity.group(2)
+        else:
+            v=(parse_qs(u.query).get('var') or [''])[0]
+            if re.fullmatch(r'\d{1,20}',v):variation=v
+        return 'https://www.ebay.co.uk/itm/'+legacy+('?var='+variation if variation and int(variation)!=0 else '')
+    except ValueError:return None
+
+def identity_search(query,browse):
+    """Read-only suggestions, with one broader retry only after a genuine zero."""
+    attempts=[];searched=query
+    tokens=re.findall(r'[\w]+',query)
+    broader=' '.join(tokens[:2]) if len(tokens)>2 else None
+    while True:
+        d=browse(searched,12)
+        if not d.get('ok') or d.get('environment')!='production':
+            return {'ok':False,'status':d.get('status','Production eBay search unavailable'),
+                'detail':d.get('detail','Live UK access is needed for item suggestions.')}
+        items=d.get('items') or []
+        attempts.append({'query':searched,'returned':len(items)})
+        if items or len(attempts)==2 or not broader or broader.casefold()==query.casefold():break
+        searched=broader
+    candidates=[];filtered={'ids':0,'links':0}
+    for x in items:
+        identity=str(x.get('itemId',''))
+        if not re.fullmatch(r'v1\|\d{6,20}\|\d{1,20}',identity):filtered['ids']+=1;continue
+        url=safe_listing_url(x.get('itemWebUrl'),identity)
+        if not url:filtered['links']+=1;continue
+        candidates.append({'id':identity,'title':str(x.get('title','Item'))[:250],
+            'condition':str(x.get('condition','Not supplied'))[:100],
+            'asking':amount(x.get('price')) if x.get('currency')=='GBP' else None,'url':url})
+    return {'ok':True,'source':'eBay UK active listings','candidates':candidates,'returned':len(items),
+        'total':d.get('total'),'filtered':filtered,'query':query,'searchedQuery':searched,
+        'broadened':len(attempts)>1,'attempts':attempts,
+        'note':'Identification suggestions, not verified catalogue records or sold values. Check the physical item.'}
 
 def read(path,params,token_fn,scope=BASE_SCOPE):
     auth=token_fn(scope)
@@ -69,7 +114,7 @@ def overview(category,token_fn):
     if high.get('ok'):
         items=[];seen=set()
         for x in high['data'].get('itemSummaries',[]):
-            p=x.get('price') or {};v=amount(p.get('value'));id=str(x.get('itemId',''));url=safe_listing_url(x.get('itemWebUrl'))
+            p=x.get('price') or {};v=amount(p.get('value'));id=str(x.get('itemId',''));url=safe_listing_url(x.get('itemWebUrl'),id)
             if p.get('currency')!='GBP' or v is None or not id or id in seen or not url or 'FIXED_PRICE' not in x.get('buyingOptions',[]):continue
             seen.add(id);items.append({'id':id,'title':str(x.get('title','Listing'))[:250],'value':v,'currency':'GBP','url':url,'condition':str(x.get('condition','Not supplied'))[:100]})
         high={'ok':True,'checkedAt':now,'status':'Highest UK asking prices','items':sorted(items,key=lambda x:x['value'],reverse=True)[:10],
@@ -89,7 +134,7 @@ def identity_detail(item_id,token_fn):
         name=str(a.get('name','')).lower();value=a.get('value')
         if isinstance(value,str) and value.strip().lower() not in ('does not apply','unbranded','unknown','n/a'):aspects[name]=value.strip()[:180]
     text=lambda v:re.sub(r'[<>"`\x00-\x1f]','',str(v or ''))[:180]
-    title=text(d.get('title'));url=safe_listing_url(d.get('itemWebUrl'))
+    title=text(d.get('title'));url=safe_listing_url(d.get('itemWebUrl'),item_id)
     if not title or not url:return {'ok':False,'status':'No usable product identity in this listing.'}
     try: barcode=normalize_barcode(aspects.get('ean') or aspects.get('upc'))
     except ValueError: barcode=''

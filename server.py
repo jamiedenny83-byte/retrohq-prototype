@@ -123,7 +123,7 @@ def ebay_browse_search(query, limit=12):
                 "itemId":x.get("itemId"),"title":x.get("title"),"price":value,"currency":currency,
                 "condition":x.get("condition"),"buyingOptions":x.get("buyingOptions",[]),
                 "shipping":browse_shipping(x),"checkedAt":__import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
-                "itemWebUrl":x.get("itemWebUrl"),"seller":(x.get("seller") or {}).get("username")
+                "itemWebUrl":market_overview.safe_listing_url(x.get("itemWebUrl"),x.get("itemId")),"seller":(x.get("seller") or {}).get("username")
             })
         return {
             "ok":True,"status":"Live","marketplace":"EBAY_GB","environment":auth["environment"],"count":len(items),
@@ -1055,15 +1055,7 @@ class H(SimpleHTTPRequestHandler):
             p=parse_qs(u.query);query=(p.get('q') or [''])[0].strip()
             if not 2<=len(query)<=200:
                 self.send_json({'ok':False,'status':'Enter a product name (2–200 characters).'},400);return
-            d=ebay_browse_search(query,12)
-            if not d.get('ok') or d.get('environment')!='production':
-                self.send_json({'ok':False,'status':d.get('status','Production eBay search unavailable'),'detail':d.get('detail','Live UK access is needed for item suggestions.')});return
-            candidates=[]
-            for x in d.get('items',[]):
-                if not re.fullmatch(r'v1\|\d{6,20}\|\d{1,20}',str(x.get('itemId',''))) or not market_overview.safe_listing_url(x.get('itemWebUrl')):continue
-                candidates.append({'id':x['itemId'],'title':str(x.get('title','Item'))[:250],'condition':str(x.get('condition','Not supplied'))[:100],
-                    'asking':x.get('price') if x.get('currency')=='GBP' else None,'url':x['itemWebUrl']})
-            self.send_json({'ok':True,'source':'eBay UK active listings','candidates':candidates,'note':'Identification suggestions, not verified catalogue records or sold values. Check the physical item.'});return
+            self.send_json(market_overview.identity_search(query,ebay_browse_search));return
         if u.path == "/api/market-search":
             p = parse_qs(u.query); q=(p.get("q") or [""])[0].strip(); barcode=(p.get("barcode") or [""])[0].strip(); selected_id=(p.get("id") or [""])[0].strip(); cex_grade=(p.get("cexGrade") or [""])[0].strip() or None; cex_id=(p.get("cexId") or [""])[0].strip() or None
             lookup = pricecharting_lookup(q, barcode, selected_id)
