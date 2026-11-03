@@ -1,0 +1,3 @@
+const {test}=require('node:test'),assert=require('node:assert/strict'),C=require('../capture-search');
+test('scanned/typed barcodes share strict GTIN validation before requesting a value',()=>{for(const code of ['5030917096846','4006381333931','012345678905'])assert.equal(C.barcode(code),code);assert.equal(C.barcode('5030 9170-96846'),'5030917096846');for(const code of ['5030917096847','123','https://example.com','<barcode>','00000x0000000'])assert.throws(()=>C.barcode(code));});
+test('invalid and oversized photo inputs fail before decoding or provider requests',async()=>{await assert.rejects(C.photo(null));await assert.rejects(C.photo({size:13*1024*1024,type:'image/jpeg'}));await assert.rejects(C.photo({size:1024,type:'text/html'}));});
