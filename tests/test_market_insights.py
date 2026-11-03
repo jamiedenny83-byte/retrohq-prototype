@@ -43,6 +43,29 @@ class MarketInsightsTests(unittest.TestCase):
         m._cache.clear(); self.pc.return_value['salesVolume'] = None
         self.assertIsNone(self.get()['pricecharting']['annualVolume'])
 
+    def test_exact_title_platform_can_provide_current_data_without_a_manual_choice(self):
+        import server
+        d=m.observation('Game PS2','','cib',self.search,self.pc,self.browse,server.infer_intent,server.candidate_allowed,
+            server.PC_PRODUCTS,server._cex_platforms,server._cex_match_words)
+        self.assertTrue(d['pricecharting']['ok']);self.assertTrue(d['pricecharting']['autoMatched'])
+        self.assertEqual(d['pricecharting']['productId'],'123');self.assertEqual(d['candidates'],[])
+
+    def test_exact_matching_rejects_editions_wrong_platforms_and_ambiguous_records(self):
+        import server
+        rows=[{'id':'1','title':'Silent Hill 2','platform':'PAL Playstation 2'},
+              {'id':'2','title':'Silent Hill 2 Platinum','platform':'PAL Playstation 2'},
+              {'id':'3','title':'Silent Hill 2','platform':'Playstation 2'},
+              {'id':'4','title':'Silent Hill 3','platform':'PAL Playstation 2'}]
+        choose=lambda q,r:m.exact_candidate(q,r,server._cex_platforms,server._cex_match_words)
+        self.assertEqual(choose('Silent Hill 2 PS2',rows)['id'],'1')
+        self.assertIsNone(choose('Silent Hill 2 PAL PS2',[rows[2]]))
+        self.assertIsNone(choose('Silent Hill 2 PS2',[rows[0],{**rows[0],'id':'5'}]))
+        self.assertIsNone(choose('Silent Hill 2 PS3',rows))
+
+    def test_market_authentication_detail_is_preserved_without_making_zero_readings(self):
+        self.browse.return_value={'ok':False,'status':'eBay market authentication HTTP 401','detail':'Check EBAY_MARKET_CLIENT_ID / EBAY_MARKET_CLIENT_SECRET'}
+        d=self.get();self.assertFalse(d['ebay']['ok']);self.assertIn('EBAY_MARKET_CLIENT_ID',d['ebay']['detail']);self.assertNotIn('value',d['ebay'])
+
     def test_route_uses_existing_read_connectors_without_seller_oauth_changes(self):
         import json
         import threading

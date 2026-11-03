@@ -15,8 +15,10 @@ function validate(s){
 function apply(saved,id,response,now=Date.now()){
  const next=clone(saved),t=next.targets.find(t=>t.id===id);if(!t||!response?.ok||response.query!==t.query||response.grade!==t.grade)throw Error('Market reading does not match this tracked item.');
  t.lastAttempt=new Date(now).toISOString();t.status=['pricecharting','ebay'].map(k=>response[k]?.status||'Unavailable').join(' · ');
+ t.providerStatus=Object.fromEntries(['pricecharting','ebay'].map(k=>[k,{ok:response[k]?.ok===true,status:String(response[k]?.status||'Unavailable').slice(0,240),detail:String(response[k]?.detail||'').slice(0,800)}]));
  t.candidates=(response.candidates||[]).filter(x=>/^\d{1,16}$/.test(x.id)&&typeof x.title==='string'&&typeof x.platform==='string').slice(0,6);
  for(const provider of ['pricecharting','ebay']){const p=response[provider];if(!p?.ok||!Number.isFinite(p.value)||p.value<0||!Number.isFinite(Date.parse(p.checkedAt))||Date.parse(p.checkedAt)>now+60000)continue;
+  if(provider==='pricecharting'&&!t.productId&&p.autoMatched===true&&typeof p.productId==='string'&&/^\d{1,16}$/.test(p.productId)){t.productId=p.productId;t.catalogueSource='Exact title/platform match';t.candidates=[];}
   if(provider==='pricecharting'&&(p.productId!==t.productId||p.currency!=='USD'))continue;
   if(provider==='ebay'&&(p.currency!=='GBP'||!Number.isSafeInteger(p.count)||p.count<5||typeof p.query!=='string'))continue;
   const series=provider==='pricecharting'?JSON.stringify([p.productId,t.grade,'USD']):JSON.stringify([p.query,t.grade,'EBAY_GB','GBP','fixed-price-asking-v1']);

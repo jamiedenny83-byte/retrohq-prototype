@@ -3,7 +3,7 @@ from urllib.parse import urlparse, parse_qs, urlencode, quote, unquote
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 from pathlib import Path
-import json, os, time, threading, re, base64, statistics
+import json, os, time, threading, re, base64, statistics, hashlib
 import ebay_live
 import ebay_seller
 import item_identification
@@ -36,22 +36,32 @@ def _ebay_market_credentials():
                 "detail":"Set both EBAY_MARKET_CLIENT_ID and EBAY_MARKET_CLIENT_SECRET for production UK market data."}
     if live_id and live_secret:
         return {"ok":True,"client":live_id,"secret":live_secret,
-                "base":"https://api.ebay.com","environment":"production"}
+                "base":"https://api.ebay.com","environment":"production","source":"EBAY_MARKET"}
+    seller_id=os.environ.get('EBAY_LIVE_CLIENT_ID','').strip()
+    seller_secret=os.environ.get('EBAY_LIVE_CLIENT_SECRET','').strip()
+    if bool(seller_id)!=bool(seller_secret):
+        return {'ok':False,'status':'Production application keys incomplete',
+                'detail':'Set both EBAY_LIVE_CLIENT_ID and EBAY_LIVE_CLIENT_SECRET, or a complete separate EBAY_MARKET key pair, then restart the server.'}
+    if seller_id and seller_secret:
+        return {'ok':True,'client':seller_id,'secret':seller_secret,'base':'https://api.ebay.com',
+                'environment':'production','source':'EBAY_LIVE'}
     client = os.environ.get("EBAY_CLIENT_ID","").strip()
     secret = os.environ.get("EBAY_CLIENT_SECRET","").strip()
     if not client or not secret:
         return {"ok":False,"status":"Credentials not loaded",
                 "detail":"Set eBay application credentials in the server environment."}
     return {"ok":True,"client":client,"secret":secret,"base":_ebay_base(),
-            "environment":os.environ.get("EBAY_ENV","production").lower()}
+            "environment":os.environ.get("EBAY_ENV","production").lower(),"source":"EBAY"}
 
 def ebay_access_token():
     config = _ebay_market_credentials()
     if not config.get("ok"): return config
     now=time.time()
+    signature=hashlib.sha256((config['client']+'\0'+config['secret']+'\0'+config['environment']).encode()).hexdigest()
     if (_ebay_token_cache.get("token") and
         _ebay_token_cache.get("client")==config["client"] and
         _ebay_token_cache.get("environment")==config["environment"] and
+        _ebay_token_cache.get('signature')==signature and
         now < _ebay_token_cache.get("expires",0)-60):
         return {"ok":True,"token":_ebay_token_cache["token"],"base":config["base"],
                 "environment":config["environment"]}
@@ -67,11 +77,15 @@ def ebay_access_token():
         token=data.get("access_token")
         if not token: return {"ok":False,"status":"OAuth error","detail":"eBay did not return an application access token."}
         _ebay_token_cache.update(token=token,expires=now+int(data.get("expires_in",7200)),
-                                 client=config["client"],environment=config["environment"])
+                                 client=config["client"],environment=config["environment"],signature=signature)
         return {"ok":True,"token":token,"base":config["base"],"environment":config["environment"]}
     except HTTPError as e:
         # Avoid reflecting credential-bearing provider responses.
-        return {"ok":False,"status":f"eBay OAuth HTTP {e.code}","detail":"eBay refused the application token request."}
+        source=config.get('source','EBAY')
+        detail=('Market search could not authenticate '+source+'_CLIENT_ID / '+source+'_CLIENT_SECRET for '+config['environment']+
+                '. Check that App ID and Cert ID are a matching key pair for that environment, update the Codespaces secrets and restart the server. '
+                'The seller-account connection is separate; do not reconnect it to fix this market-search error.') if e.code==401 else 'eBay refused the market application token request. Check application access in the developer portal.'
+        return {"ok":False,"status":f"eBay market authentication HTTP {e.code}","detail":detail}
     except Exception as e:
         return {"ok":False,"status":"eBay OAuth unavailable","detail":type(e).__name__}
 
@@ -1024,7 +1038,7 @@ class H(SimpleHTTPRequestHandler):
             p = parse_qs(u.query)
             result = market_insights.observation((p.get("q") or [""])[0], (p.get("id") or [""])[0],
                 (p.get("grade") or ["cib"])[0], pc_call, pc_detail, ebay_browse_search,
-                infer_intent, candidate_allowed, PC_PRODUCTS)
+                infer_intent, candidate_allowed, PC_PRODUCTS, _cex_platforms, _cex_match_words)
             self.send_json(result); return
         if u.path == "/api/market-search":
             p = parse_qs(u.query); q=(p.get("q") or [""])[0].strip(); barcode=(p.get("barcode") or [""])[0].strip(); selected_id=(p.get("id") or [""])[0].strip(); cex_grade=(p.get("cexGrade") or [""])[0].strip() or None; cex_id=(p.get("cexId") or [""])[0].strip() or None
