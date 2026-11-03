@@ -7,6 +7,7 @@ import json, os, time, threading, re, base64, statistics
 import ebay_live
 import ebay_seller
 import item_identification
+import market_insights
 
 ROOT = Path(__file__).resolve().parent
 PC_PRODUCT = "https://www.pricecharting.com/api/product"
@@ -966,6 +967,12 @@ class H(SimpleHTTPRequestHandler):
             return
         if u.path == "/api/ebay-seller/status":
             self.send_json(ebay_seller.configuration()); return
+        if u.path == "/api/market-observation":
+            p = parse_qs(u.query)
+            result = market_insights.observation((p.get("q") or [""])[0], (p.get("id") or [""])[0],
+                (p.get("grade") or ["cib"])[0], pc_call, pc_detail, ebay_browse_search,
+                infer_intent, candidate_allowed, PC_PRODUCTS)
+            self.send_json(result); return
         if u.path == "/api/market-search":
             p = parse_qs(u.query); q=(p.get("q") or [""])[0].strip(); barcode=(p.get("barcode") or [""])[0].strip(); selected_id=(p.get("id") or [""])[0].strip(); cex_grade=(p.get("cexGrade") or [""])[0].strip() or None; cex_id=(p.get("cexId") or [""])[0].strip() or None
             lookup = pricecharting_lookup(q, barcode, selected_id)

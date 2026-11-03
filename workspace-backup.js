@@ -1,7 +1,7 @@
 /* Portable backups; restore is replacement, never a merge of sales ledgers. */
 (function(root){
 'use strict';
-const fields=['items','customers','settings','creditIssued','researchHistory','ebaySync','transactions','liveEbay','opportunities','stockCsv'];
+const fields=['items','customers','settings','creditIssued','researchHistory','ebaySync','transactions','liveEbay','opportunities','stockCsv','marketInsights'];
 const maxBytes=5*1024*1024;
 const object=x=>x&&typeof x==='object'&&!Array.isArray(x);
 const fail=message=>{throw Error(message);};
@@ -12,7 +12,7 @@ function validate(state){
   if(!external&&typeof x==='string'&&(/[<>`\u0000-\u0008]/.test(x)||(!['externalKey','key','productionKey'].includes(key)&&x.includes('"'))||/^\s*javascript:/i.test(x)))fail('Some backup text contains unsupported markup or quotation characters. Nothing was restored.');
   if(typeof x==='number'&&!Number.isFinite(x))fail('Invalid number in backup.');
   if(x&&typeof x==='object')for(const [k,v]of Object.entries(x)){
-   if(['__proto__','prototype','constructor'].includes(k))fail('Unsupported object field in backup.');walk(v,k,depth+1,external||['liveEbay','opportunities','liveSnapshot','liveSku'].includes(k));
+   if(['__proto__','prototype','constructor'].includes(k))fail('Unsupported object field in backup.');walk(v,k,depth+1,external||['liveEbay','opportunities','liveSnapshot','liveSku','marketInsights'].includes(k));
   }
  }
  walk(state);
@@ -41,6 +41,7 @@ function validate(state){
  const stockApi=typeof module!=='undefined'&&module.exports?require('./stock-sync'):root.RetroStockSync;stockApi.check(state);
  if(state.opportunities!=null&&(!object(state.opportunities)||!Array.isArray(state.opportunities.rows)||state.opportunities.rows.some(r=>!object(r)||typeof r.id!=='string')))fail('Invalid opportunity watchlist.');
 
+ if(state.marketInsights!=null)(typeof module!=='undefined'&&module.exports?require('./market-insights'):root.RetroMarket).validate(state.marketInsights);
  const customerIds=new Set();
  for(const c of state.customers){if(!object(c)||!Number.isSafeInteger(c.id)||customerIds.has(c.id)||typeof c.name!=='string'||!Number.isFinite(c.credit)||!Array.isArray(c.ledger))fail('Invalid trade account.');customerIds.add(c.id);}
  for(const k of ['offerPct','storeCreditBonus','greenMargin','yellowMargin'])if(!Number.isFinite(state.settings[k]))fail('Invalid business settings.');
