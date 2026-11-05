@@ -189,8 +189,9 @@ function itemView(){
  if(i.stockRemoval)return `<div class="card"><h2>${escapeText(i.title)}</h2><p>Removed from live stock.</p><button class="btn secondary" onclick="go('inventory')">Back to inventory</button></div>`;
  return `<div class="hero"><div><small>${escapeText(i.category)}</small><h2>${escapeText(i.title)}</h2>
  <div class="hero-actions"><button class="btn secondary" onclick="editItem(${i.id})">Edit prices & details</button>
- <button class="btn secondary" onclick="identifyExistingItem(${i.id})">${i.needsIdentification?'Identify this item':'Review item identity'}</button>
- <button class="btn primary" onclick="checkItemMarket(${i.id})">Check market value</button>${managerActive()&&RetroCheckout.available(i)?'<button class="btn secondary" onclick="stockRemovalDialog('+i.id+',true)">Remove from stock</button>':''}</div>
+ ${reviewableImport(i)?`<button class="btn primary" onclick="checkItemMarket(${i.id})">Review imported item</button>`:
+  `<button class="btn secondary" onclick="identifyExistingItem(${i.id})">${i.needsIdentification?'Identify this item':'Review item identity'}</button>
+  <button class="btn primary" onclick="checkItemMarket(${i.id})">Check market value</button>`}${managerActive()&&RetroCheckout.available(i)?'<button class="btn secondary" onclick="stockRemovalDialog('+i.id+',true)">Remove from stock</button>':''}</div>
  <p>${escapeText(i.condition)} · ${escapeText(i.location)} · ${escapeText(i.status)}</p>${signalHtml(i)}</div>
  <div><div>HQ UK market value <strong>${knownMoney(independentMarketValue(i))}</strong></div>
  <div>eBay listed price <strong>${knownMoney(ebayListedPrice(i))}</strong></div>
@@ -561,9 +562,50 @@ const cexUrl=q=>`https://uk.webuy.com/search?stext=${encodeURIComponent(q)}`;
 const googleUrl=q=>`https://www.google.com/search?q=${encodeURIComponent(q+' UK used price')}`;
 
 let acquisitionPhoto=null;
+function reviewableImport(item){
+ return item?.importedFrom==='ebay-production'&&item.needsIdentification&&RetroCheckout.available(item);
+}
+function nextUnreviewedImport(item){
+ return state.items.find(other=>other.id!==item.id&&reviewableImport(other));
+}
+function importReviewDetails(item){
+ const details=item.liveSnapshot?.details||{};
+ const specifics=[...(details.variationSpecifics||[]),...(details.specifics||[])];
+ const specific=labels=>{
+  const values=[...new Set(specifics.filter(row=>labels.includes(String(row.name).trim().toLowerCase()))
+   .flatMap(row=>row.values).map(value=>String(value).trim()).filter(value=>value&&!/^(?:unknown|n\/a|does not apply|not applicable)$/i.test(value)))];
+  return values.length===1?values[0]:'';
+ };
+ const game=specific(['game name','game title','video game name']);
+ const platform=item.platform||specific(['platform','compatible platform']);
+ return {title:game||item.title,platform,category:game?'Video Game':item.category||'Uncategorised',
+  region:item.region||specific(['region code','region']),manufacturer:item.manufacturer||details.brand||'',barcode:item.barcode||''};
+}
+function importReviewHtml(details){
+ const categories=[...new Set(['Video Game','Console','Toy','Clothing','Trading Card','Accessory','Collectible','Other',details.category])];
+ return `<section class="card" id="bcImportReview"><h3>Confirm the physical item</h3>
+ <p id="bcImportMatch"><strong>${escapeText(details.title)}</strong>${details.platform?' · '+escapeText(details.platform):''}</p>
+ <details><summary>Edit identity details</summary><div class="formgrid">
+ ${[['title','Product title'],['platform','Platform / model'],['region','Region / edition'],['manufacturer','Manufacturer']].map(([key,label])=>`<label>${label}<input id="bcReview-${key}" class="input" value="${escapeText(details[key])}"></label>`).join('')}
+ <label>Category<select id="bcReview-category" class="select">${categories.map(category=>`<option ${category===details.category?'selected':''}>${escapeText(category)}</option>`).join('')}</select></label></div></details>
+ <label><input id="bcConfirmImport" type="checkbox"> I checked the product, edition and contents against the physical item.</label>
+ <p class="muted">Confirm the match once to save the identity and current value on this stock record.</p></section>`;
+}
+function updateImportMatch(identity){
+ const box=$('#bcImportReview');
+ if(!box||!identity?.confirmedProduct)return;
+ $('#bcReview-title').value=identity.confirmedProduct;
+ if(identity.platform)$('#bcReview-platform').value=identity.platform;
+ if(identity.type==='software')$('#bcReview-category').value='Video Game';
+ else if(identity.type==='hardware')$('#bcReview-category').value='Console';
+ $('#bcImportMatch').textContent=[identity.confirmedProduct,identity.platform].filter(Boolean).join(' · ');
+ $('#bcConfirmImport').checked=false;
+}
 window.buyCheck=(item=null)=>{
  acquisitionPhoto=null;photoSearchNote='';
- const platform=item?.identity?.platform||item?.platform||'',title=item?.identity?.confirmedProduct||item?.title||'';
+ const review=reviewableImport(item)?importReviewDetails(item):null;
+ const platform=item?.identity?.platform||review?.platform||item?.platform||'';
+ const title=item?.identity?.confirmedProduct||review?.title||item?.title||'';
  const query=[title,platform&&!title.toLowerCase().includes(platform.toLowerCase())?platform:''].filter(Boolean).join(' ');
  const seed=item?{q:query,barcode:item.barcode||'',pcId:item.identity?.pricechartingProductId||item.valuation?.identity?.pricechartingProductId||null,cexId:item.cexProductId||null}:null;
  const condition=item?.condition||'Good';
@@ -575,7 +617,14 @@ window.buyCheck=(item=null)=>{
 <div class="buy-grade-card"><div><label>Condition</label><div class="quality-buttons"><button type="button" data-quality="Excellent" onclick="setBuyCondition('Excellent')">Excellent</button><button type="button" data-quality="Good" onclick="setBuyCondition('Good')">Good</button><button type="button" data-quality="Poor" onclick="setBuyCondition('Poor')">Poor</button></div></div><div><label>Included</label><div class="accessory-checks"><label id="bcBoxWrap"><input id="bcBox" type="checkbox" ${item?.accessories?.box?'checked':''} onchange="this.dataset.userSet='1';buyAccessoryChanged('box')"> <span id="bcBoxLabel">Box</span></label><label id="bcControllerWrap"><input id="bcController" type="checkbox" ${item?.accessories?.controller?'checked':''} onchange="buyAccessoryChanged('controller')"> Controller</label><label id="bcCablesWrap"><input id="bcCables" type="checkbox" ${item?.accessories?.cables?'checked':''} onchange="buyAccessoryChanged('cables')"> Cables</label></div></div><div id="bcGradeHint" class="grade-hint"></div></div>
 <div id="autoSearchStatus" class="auto-status">Ready — type the item and press Enter.</div><div id="autoEvidence"></div><div id="bcLinks"></div>
 <div class="formgrid value-fields"><div class="field"><label>RetroHQ UK Market Value</label><input id="bcMarket" class="input" type="number" readonly placeholder="Waiting for live UK evidence"></div><div class="field"><label>Manual override (optional)</label><input id="bcOverride" name="retrohq_market_override" class="input" type="number" step="0.01" autocomplete="off" placeholder="Leave blank to use RetroHQ value" oninput="buyCheckCalc()"><small id="overrideHint" class="muted">Only use this when you deliberately want to replace RetroHQ's calculated value.</small></div></div>
-<details class="card" ${item?'hidden':''}><summary>Storage and buying trip</summary><div class="formgrid"><label>Area<input class="input" id="bcArea"></label><label>Shelf<input class="input" id="bcShelf"></label><label>Buying trip / lot<input class="input" id="bcBatch" list="batchNames"><datalist id="batchNames">${[...new Set(state.items.map(i=>i.batchName).filter(Boolean))].map(n=>'<option value="'+escapeText(n)+'">').join('')}</datalist></label><label>Category<select class="select" id="bcCategory"><option>Video Game</option><option>Console</option><option>Toy</option><option>Clothing</option><option>Trading Card</option><option>Accessory</option><option>Collectible</option></select></label></div></details><div id="acquisitionPhotoSummary"></div>${buyingCostsHtml("bc",item?.buyingEstimate?.costs)}<div id="bcDecision" class="decision-panel"></div><div id="acquireError" role="status"></div><div class="modal-actions acquire-actions">${item?'<button class="btn secondary" onclick="closeModal()">Close</button>'+(readOnly?'':'<button class="btn primary" onclick="saveExistingValue()">Save value to this item</button>'):'<button class="btn secondary" onclick="closeModal()">Decline</button><button class="btn secondary" onclick="saveAcquisition(true)">Save & next</button><button class="btn primary" onclick="saveAcquisition(false)">Save item</button>'}</div>`);
+<details class="card" ${item?'hidden':''}><summary>Storage and buying trip</summary><div class="formgrid"><label>Area<input class="input" id="bcArea"></label><label>Shelf<input class="input" id="bcShelf"></label><label>Buying trip / lot<input class="input" id="bcBatch" list="batchNames"><datalist id="batchNames">${[...new Set(state.items.map(i=>i.batchName).filter(Boolean))].map(n=>'<option value="'+escapeText(n)+'">').join('')}</datalist></label><label>Category<select class="select" id="bcCategory"><option>Video Game</option><option>Console</option><option>Toy</option><option>Clothing</option><option>Trading Card</option><option>Accessory</option><option>Collectible</option></select></label></div></details><div id="acquisitionPhotoSummary"></div>${buyingCostsHtml("bc",item?.buyingEstimate?.costs)}<div id="bcDecision" class="decision-panel"></div>${review?importReviewHtml(review):''}<div id="acquireError" role="status"></div><div class="modal-actions acquire-actions">${item?'<button class="btn secondary" onclick="closeModal()">Close</button>'+(readOnly?'':review?'<button class="btn secondary" onclick="saveExistingValue(false,true)">Save identity only</button>'+(nextUnreviewedImport(item)?'<button class="btn secondary" onclick="saveExistingValue(true)">Save &amp; review next</button>':'')+'<button class="btn primary" onclick="saveExistingValue()">Confirm item &amp; save value</button>':'<button class="btn primary" onclick="saveExistingValue()">Save value to this item</button>'):'<button class="btn secondary" onclick="closeModal()">Decline</button><button class="btn secondary" onclick="saveAcquisition(true)">Save & next</button><button class="btn primary" onclick="saveAcquisition(false)">Save item</button>'}</div>`);
+ if(review){
+  $('#bcImportReview').oninput=event=>{
+   if(!event.target.id.startsWith('bcReview-'))return;
+   $('#bcConfirmImport').checked=false;
+   $('#bcImportMatch').textContent=[$('#bcReview-title').value,$('#bcReview-platform').value].filter(Boolean).join(' · ');
+  };
+ }
  if(item?.accessories)$('#bcBox').dataset.userSet='1';
  if(item?.identity)updateCompletenessUI(item.identity);
  $$('.quality-buttons button').forEach(button=>button.classList.toggle('active',button.dataset.quality===condition));
@@ -643,7 +692,7 @@ function applySmartValuation(){
 window.renderMarketResult=async(d,current)=>{const status=$('#autoSearchStatus'),ev=$('#autoEvidence');if(d.pricechartingProductId)window.buyCheckSession.pcId=String(d.pricechartingProductId);if(d.lockedIdentity||d.provisionalIdentity)updateCompletenessUI(d.lockedIdentity||d.provisionalIdentity);
  if(d.needsRefinement){window.buyCheckSession.benchmark=null;window.buyCheckSession.valuation=null;$('#bcMarket').value='';status.textContent='One quick question — choose the console generation.';ev.innerHTML=`<div class="evidence-panel"><h3>Which one is it?</h3><div class="candidate-list">${(d.refinements||[]).map(r=>`<button class="candidate-card" onclick="refineMarketSearch('${String(r.query).replace(/'/g,'')}')"><strong>${r.label}</strong><small>Use this generation</small></button>`).join('')}</div></div>`;buyCheckCalc();return;}
  if(d.needsConfirmation){window.buyCheckSession.benchmark=null;window.buyCheckSession.valuation=null;$('#bcMarket').value='';status.classList.add('action-required');status.textContent=photoSearchNote?'Photo identified — confirm the catalogue edition/platform below.':'RetroHQ found more than one credible match.';ev.innerHTML=`<div class="evidence-panel"><h3>Which item is this?</h3><div class="candidate-list">${(d.candidates||[]).slice(0,6).map(c=>`<button class="candidate-card" onclick="selectMarketCandidate('${String(c.id).replace(/'/g,'')}')"><strong>${c['product-name']||'Unknown product'}</strong><span>${c['console-name']||'Unknown platform'}</span><small>Confirm this item →</small></button>`).join('')}</div></div>`;buyCheckCalc();return;}
- status.classList.remove('action-required');if($('#bcCategory')&&d.lockedIdentity?.type==='hardware')$('#bcCategory').value='Console';window.buyCheckSession.lockedIdentity=d.lockedIdentity||null;window.buyCheckSession.benchmark=d.marketValue!=null?Number(d.marketValue):null;window.buyCheckSession.evidence=d.evidence||[];renderBuyGradeHint();
+ status.classList.remove('action-required');updateImportMatch(d.lockedIdentity);if($('#bcCategory')&&d.lockedIdentity?.type==='hardware')$('#bcCategory').value='Console';window.buyCheckSession.lockedIdentity=d.lockedIdentity||null;window.buyCheckSession.benchmark=d.marketValue!=null?Number(d.marketValue):null;window.buyCheckSession.evidence=d.evidence||[];renderBuyGradeHint();
  const selectedCex=(d.evidence||[]).find(x=>x.provider==='CeX UK'&&x.status==='Live');window.buyCheckSession.cexCatalogueGrade=selectedCex?.grade||null;window.buyCheckSession.cexCatalogueProduct=selectedCex?.product||null;if(d.lockedIdentity?.type==='software'&&selectedCex?.grade&&$('#bcBox'))$('#bcBox').checked=selectedCex.grade!=='Unboxed';renderBuyGradeHint();
  const hasPC=(d.evidence||[]).some(x=>x.provider==='PriceCharting'&&x.status==='Live');
  if(d.marketValue!=null){status.textContent='✓ UK benchmark ready — valuing the actual item in front of you.';}
@@ -675,7 +724,7 @@ window.buyLookupChanged=()=>{
  const old=window.buyCheckSession;
  if(!$('#bcDesc')||!old)return;
  window.buyCheckSession={item:old.item,seed:old.seed,condition:old.condition,pcId:null,cexId:null};
- $('#bcOverride').value='';$('#bcMarket').value='';$('#autoEvidence').innerHTML='';
+ $('#bcOverride').value='';$('#bcMarket').value='';$('#autoEvidence').innerHTML='';if($('#bcConfirmImport'))$('#bcConfirmImport').checked=false;
  const status=$('#autoSearchStatus');
  status.classList.remove('action-required');status.textContent='Ready to search.';
  $('#autoSearchBtn').disabled=false;
@@ -1154,7 +1203,7 @@ window.checkItemMarket=id=>{
  const item=state.items.find(record=>record.id===id);
  if(item)buyCheck(item);
 };
-window.saveExistingValue=()=>{
+window.saveExistingValue=(reviewNext=false,identityOnly=false)=>{
  const session=window.buyCheckSession,item=session?.item;
  const error=$('#acquireError');
  if(!item||!error)return;
@@ -1163,16 +1212,36 @@ window.saveExistingValue=()=>{
   const index=state.items.indexOf(item);
   if(index<0||!RetroCheckout.available(item))throw Error('Stock changed. Reopen the item before saving.');
   const override=$('#bcOverride').value.trim(),raw=override||$('#bcMarket').value;
+  const now=new Date().toISOString();
+  let record=item;
+  if(reviewableImport(item)){
+   const details={confirmed:$('#bcConfirmImport').checked,barcode:$('#bcBarcode').value};
+   for(const key of ['title','platform','region','manufacturer','category'])details[key]=$('#bcReview-'+key).value;
+   const identity=session.lockedIdentity;
+   const sameMatch=identity?.confirmedProduct===details.title&&identity?.platform===details.platform&&
+    (identity?.type==='software'?details.category==='Video Game':identity?.type==='hardware'?details.category==='Console':true);
+   if(!identityOnly&&!override&&raw&&!sameMatch)throw Error('The review details differ from the researched item. Search for the exact item again or enter a verified manual value.');
+   if(sameMatch&&identity.pricechartingProductId)details.catalogue={id:String(identity.pricechartingProductId),title:details.title,platform:details.platform};
+   record=RetroItems.identify(item,details,now);
+  }
+  if(identityOnly){
+   if(record===item)throw Error('No pending identity to confirm.');
+   state.items[index]=record;
+   if(!persistState()){state.items[index]=item;return;}
+   closeModal();render();return;
+  }
   if(raw===''||!Number.isFinite(Number(raw))||Number(raw)<0)throw Error('Check the exact item and UK benchmark, or enter a manual value.');
-  const value=Math.round(Number(raw)*100)/100,now=new Date().toISOString();
+  const value=Math.round(Number(raw)*100)/100;
   const valuation={...session.valuation,finalValue:value,acquisitionValue:item.valuation?.acquisitionValue??null,timestamp:now,stale:false,staleReasons:[]};
   if(override)Object.assign(valuation,{source:'Manual inventory valuation',confidence:'manual',recommendedMax:Math.round(value*state.settings.offerPct)/100});
   const cex=(session.evidence||[]).find(row=>row.provider==='CeX UK'&&row.status==='Live');
   const accessories={box:$('#bcBox').checked,controller:$('#bcController').checked,cables:$('#bcCables').checked};
-  state.items[index]=RetroItems.saveValuation(item,{value,valuation,marketEvidence:session.evidence||[],condition:session.condition,accessories,
+  state.items[index]=RetroItems.saveValuation(record,{value,valuation,marketEvidence:session.evidence||[],condition:session.condition,accessories,
    cexProductId:cex?.productId??null,cexGrade:cex?.grade??null,cexProduct:cex?.product??null},now);
   if(!persistState()){state.items[index]=item;return;}
-  closeModal();render();
+  const next=reviewNext?nextUnreviewedImport(item):null;
+  closeModal();
+  if(next){openItem(next.id);buyCheck(next);}else render();
  }catch(exception){error.textContent=exception.message;error.className='action-required';}
 };
 function processingControls(i){
