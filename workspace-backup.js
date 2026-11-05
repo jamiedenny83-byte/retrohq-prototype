@@ -38,6 +38,10 @@ function validate(state){
    if(!object(t)||typeof t.id!=='string'||txIds.has(t.id)||!Array.isArray(t.lines)||!t.lines.length||t.lines.some(l=>!object(l)||!ids.has(l.id))||new Set(t.lines.map(l=>l.id)).size!==t.lines.length)fail('Invalid transaction history.');txIds.add(t.id);
    for(const k of ['subtotal','discount','total','fee','credit','due'])if(!(k==='fee'&&t.source==='ebay-production'&&t.fee===null)&&(!Number.isSafeInteger(t[k])||t[k]<0))fail('Invalid transaction amount.');
    if(t.subtotal-t.discount!==t.total||t.total-t.credit!==t.due)fail('Transaction totals do not agree.');
+   if(t.payment!==undefined){
+    const p=t.payment,methods=t.due>0?['cash','card']:[t.credit>0?'store-credit':'no-charge'];
+    if(!object(p)||t.channel!=='In Store EPOS'||p.recordedManually!==true||p.amount!==t.due||!methods.includes(p.method))fail('Invalid EPOS payment record.');
+   }
    for(const [k,total] of [['listedPrice','subtotal'],['price','total'],['discount','discount'],['fee','fee'],['credit','credit']])if(k==='fee'&&t.source==='ebay-production'&&t.fee===null?t.lines.some(l=>l.fee!==null):(t.lines.some(l=>!Number.isSafeInteger(l[k])||l[k]<0)||t.lines.reduce((a,l)=>a+l[k],0)!==t[total]))fail('Transaction allocation does not agree.');
    if(t.lines.some(l=>l.listedPrice-l.discount!==l.price))fail('Invalid discounted item price.');
   }

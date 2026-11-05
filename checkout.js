@@ -26,6 +26,11 @@ function quote(state,input){
 function complete(state,input,id,date){
  if(!id||(state.transactions||[]).some(t=>t.id===id))throw Error('This transaction has already been saved.');
  const receipt=quote(state,input),next=JSON.parse(JSON.stringify(state)),collected=['In Store EPOS','Manual / Cash'].includes(input.channel);
+ if(input.paymentMethod!==undefined){
+  const allowed=receipt.due>0?['cash','card']:[receipt.credit>0?'store-credit':'no-charge'];
+  if(input.channel!=='In Store EPOS'||!allowed.includes(input.paymentMethod))throw Error('Confirm the payment method for the amount due.');
+  receipt.payment={method:input.paymentMethod,amount:receipt.due,recordedManually:true};
+ }
  for(const line of receipt.lines){const item=next.items.find(i=>i.id===line.id);item.sale={transactionId:id,channel:input.channel,price:line.price/100,originalPrice:line.listedPrice/100,discount:line.discount/100,feeType:'fixed',feeValue:line.fee/100,creditUsed:line.credit/100,customerId:input.customerId||null,shipping:collected?0:null,packaging:collected?0:null,shippingRevenue:collected?0:null,promotion:collected?0:null,costsConfirmed:collected,date,status:collected?'Collected in store':'Ready to dispatch'};item.status=collected?'Completed':'Sold';item.timeline.push(['Sold',input.channel+' · transaction '+id+' · £'+(line.price/100).toFixed(2)]);if(collected)item.timeline.push(['Completed','Collected in store.']);}
  if(receipt.credit){const c=next.customers.find(c=>c.id===input.customerId);c.credit=(pennies(c.credit,'balance')-receipt.credit)/100;c.ledger.push([date,'Trade credit redeemed · transaction '+id,-receipt.credit/100]);}
  next.transactions=next.transactions||[];next.transactions.push({...receipt,id,date,channel:input.channel,customerId:input.customerId||null,currency:'GBP',amountUnit:'pence'});

@@ -203,6 +203,42 @@ class GameIdentificationTests(unittest.TestCase):
         self.assertEqual(result["variants"][0]["retail"],105)
         self.assertEqual(result["variants"][0]["cash"],35)
 
+    def test_cex_retries_for_retro_platforms_when_broad_search_hides_the_exact_release(self):
+        cases = [
+            ('Starwing', 'SNES', 'SNES', 'Super NES Software', 'NES Software'),
+            ('Resident Evil 2', 'Nintendo 64', 'N64', 'Nintendo 64 Software', 'Playstation Software'),
+            ('Sonic Adventure', 'Dreamcast', 'Dreamcast', 'Dreamcast Software', 'Gamecube Software'),
+            ('Mario Kart DS', 'Nintendo DS', 'DS', 'Nintendo DS Software', 'Nintendo 3DS Software'),
+        ]
+        from urllib.parse import parse_qs
+
+        for title, platform, qualifier, category, other_category in cases:
+            with self.subTest(title=title, platform=platform):
+                intent = {'type': 'software', 'platform': platform, 'gameTitle': title}
+                exact = {'boxName': title + ', Unboxed', 'boxId': 'exact', 'categoryName': category,
+                         'sellPrice': 20, 'cashPriceCalculated': 8, 'exchangePriceCalculated': 12}
+                decoys = [dict(exact, boxId='wrong-platform', categoryName=other_category),
+                          dict(exact, boxId='wrong-edition', boxName=title + ' Collection, Boxed')]
+                searches = []
+
+                def respond(request, timeout=12):
+                    payload = json.loads(request.data)
+                    query = parse_qs(payload['requests'][0]['params'])['query'][0]
+                    searches.append(query)
+                    rows = decoys + [exact] if query.endswith(' ' + qualifier) else decoys
+                    return FakeResponse({'results': [{'hits': rows}]})
+
+                with patch.object(server, 'urlopen', side_effect=respond), patch.object(server.time, 'sleep'):
+                    result = server.cex_search(title, intent)
+
+                self.assertEqual(len(searches), 2, searches)
+                self.assertEqual(searches[1], searches[0] + ' ' + qualifier)
+                self.assertEqual(result['status'], 'CeX variant needed', result)
+                self.assertEqual([row['productId'] for row in result['variants']], ['exact'])
+                with patch.object(server, 'cex_detail', return_value=exact):
+                    confirmed = server.cex_search(title, intent, selected_product_id='exact')
+                self.assertEqual((confirmed['retail'], confirmed['cash'], confirmed['voucher']), (20, 8, 12))
+
     def test_cex_does_not_invent_ps2_value_when_only_other_platforms_exist(self):
         query="Silent Hill 2 PS2"
         intent=server.infer_intent(query)

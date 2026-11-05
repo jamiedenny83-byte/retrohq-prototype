@@ -26,3 +26,16 @@ test('blank, negative, excessive discount and credit, duplicate and sold stock f
 test('single item and zero-price gift allowed with explicit values; online sales await dispatch',()=>{const x={...input(),lines:[{id:1,price:0}],discount:0,credit:0,channel:'eBay'};const n=C.complete(sample(),x,'gift','date');assert.equal(n.items[0].status,'Sold');assert.equal(n.items[0].sale.price,0);assert.equal(n.transactions[0].due,0);});
 test('returned physical stock becomes available only after the sale is removed and status reset',()=>{assert.equal(C.available({status:'Completed'}),false);assert.equal(C.available({status:'Needs repair',sale:{}}),false);assert.equal(C.available({status:'Needs repair',sale:null}),true);});
 test('backup rejects inconsistent transaction allocation',()=>{const n=C.complete(sample(),input(),'r','date');n.transactions[0].lines[0].price++;assert.throws(()=>B.parse(B.pack(n,'saved'),'saved'));});
+test('EPOS records the manual tender against the exact amount due after discount and credit',()=>{
+ const state=sample(),sale=input();
+ const next=C.complete(state,{...sale,paymentMethod:'card'},'till-card','2026-11-05');
+ const [receipt]=B.parse(B.pack(next,'saved'),'saved').state.transactions;
+ assert.deepEqual(receipt.payment,{method:'card',amount:1500,recordedManually:true});
+ assert.equal(receipt.total,2500);
+ assert.equal(next.customers[0].credit,10);
+ next.transactions[0].payment.amount=2500;
+ assert.throws(()=>B.parse(B.pack(next,'saved'),'saved'),/Invalid EPOS payment record/);
+ assert.throws(()=>C.complete(state,{...sale,paymentMethod:'store-credit'},'wrong-tender','date'));
+ const covered=C.complete(state,{...sale,discount:10,credit:20,paymentMethod:'store-credit'},'till-credit','date');
+ assert.equal(covered.transactions[0].payment.amount,0);
+});

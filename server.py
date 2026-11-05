@@ -518,17 +518,17 @@ def cex_search(query, intent=None, limit=40, grade=None, identity=None, selected
         h=cex_detail(selected_product_id)
         if h: return exact_result(h,True)
 
-    # CeX can rank the modern remake and unrelated platform listings above
-    # the original PS2 game. A title-only search can therefore miss its PS2
-    # entry entirely. Retry with a platform qualifier, but NEVER relax the
-    # required game title/platform checks to manufacture a match.
+    # A title-only search can bury the correct release under other platforms.
+    # Use the confirmed platform to narrow the search while keeping the same
+    # title and platform checks for every result.
     queries=[search_query]
     if intent.get("type")=="software" and platform:
         qualifier={
             "PlayStation 2":"PS2","PlayStation 3":"PS3","PlayStation 4":"PS4",
             "PlayStation 5":"PS5","Game Boy Advance":"GBA","Game Boy Color":"GBC",
-            "Xbox 360":"Xbox 360","Xbox One":"Xbox One","Original Xbox":"Xbox"
-        }.get(platform)
+            "PlayStation 1":"PS1","Original Xbox":"Xbox","Nintendo 64":"N64",
+            "Nintendo Switch":"Switch","Nintendo DS":"DS","Nintendo 3DS":"3DS"
+        }.get(platform,platform)
         if qualifier:
             queries.extend((search_query+" "+qualifier,qualifier+" "+search_query))
     queries=list(dict.fromkeys(queries))[:3]
