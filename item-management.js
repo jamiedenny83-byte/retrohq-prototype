@@ -16,6 +16,15 @@ function edit(item,input,now){
  const text=v=>{const t=String(v||'').trim();if(/[<>"`\u0000-\u0008]/.test(t))throw Error('Use plain text without markup or double quotation marks.');return t;};
  const area=text(input.area),shelf=text(input.shelf),notes=text(input.notes);
  copy.editHistory=copy.editHistory||[];copy.editHistory.push({date:now,before:{buy:item.buy,baseMarket:item.baseMarket??null,valuation:item.valuation||null,area:item.area||'',shelf:item.shelf||'',location:item.location||'',notes:item.notes||''}});
+ if(input.category!==undefined&&input.category!==item.category){
+  const category=text(input.category);
+  if(!category||category.length>180)throw Error('Choose an item category.');
+  Object.assign(copy.editHistory.at(-1).before,{category:item.category,identity:item.identity||null});
+  copy.category=category;
+  copy.identity=null;
+  copy.needsIdentification=true;
+  copy.timeline.push(['Category corrected',item.category+' → '+category]);
+ }
  if(item.buy!==buy)copy.timeline.push(['Purchase price corrected',(item.buy===null?'Unknown':'£'+Number(item.buy).toFixed(2))+' → '+(buy===null?'Unknown':'£'+buy.toFixed(2))]);
  copy.buy=buy;if(input.processingCosts!==undefined){copy.editHistory.at(-1).before.processingCosts=item.processingCosts;copy.processingCosts=number(input.processingCosts,['ebay-production','stock-csv'].includes(item.importedFrom));}
  if(input.valueChanged){
@@ -43,5 +52,14 @@ function identify(item,input,now){
  (copy.timeline||(copy.timeline=[])).push(['Item identified',now+' · '+copy.identity.source+' · '+title]);
  return copy;
 }
-const api={sold,steps,stage,transition,edit,identify};if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.RetroItems=api;
+function saveBenchmark(item,value,evidence,now){
+ if(sold(item)||!Number.isFinite(value)||value<=0)throw Error('A current UK benchmark is required for an unsold item.');
+ const copy=JSON.parse(JSON.stringify(item));
+ (copy.editHistory||(copy.editHistory=[])).push({date:now,before:{baseMarket:item.baseMarket??null,valuation:item.valuation||null,marketEvidence:item.marketEvidence||[]}});
+ Object.assign(copy,{baseMarket:value,marketIsConditionSpecific:true,needsValuation:false,marketEvidence:evidence,
+  valuation:{finalValue:value,acquisitionValue:item.valuation?.acquisitionValue??null,benchmark:value,benchmarkLabel:'CeX UK retail benchmark',source:'CeX UK retail benchmark',confidence:'uk-retail-benchmark',timestamp:now,stale:false}});
+ copy.timeline.push(['Value updated','CeX UK retail benchmark £'+value.toFixed(2)]);
+ return copy;
+}
+const api={sold,steps,stage,transition,edit,identify,saveBenchmark};if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.RetroItems=api;
 })(typeof globalThis!=='undefined'?globalThis:this);

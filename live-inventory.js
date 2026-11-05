@@ -82,7 +82,14 @@ function enrichUnit(next,i,l){
   const value=l.price;i.baseMarket=value;i.marketIsConditionSpecific=true;i.needsValuation=false;i.valuation={...(i.valuation||{}),finalValue:value,benchmark:value,benchmarkLabel:'eBay listing asking price',source:'eBay listing price',confidence:'asking-price',timestamp:next.liveEbay.checkedAt,stale:false};
  }
  if(!i.manufacturer&&d.brand)i.manufacturer=plain(d.brand);
- if(i.category==='Uncategorised'&&d.categoryName){const name=plain(d.categoryName);i.category=/accessories|controllers/i.test(name)?'Accessory':/video games(?!.*consoles)/i.test(name)?'Video Game':/consoles/i.test(name)?'Console':name;}
+ if(i.category==='Uncategorised'&&d.categoryName){
+  const name=plain(d.categoryName),leaf=name.split(/:|>/).at(-1).trim();
+  if(String(d.categoryId)==='139973'||/^video games?$/i.test(leaf))i.category='Video Game';
+  else if(String(d.categoryId)==='139971'||/^(?:video game )?consoles?$/i.test(leaf))i.category='Console';
+  else if(/accessories|controllers/i.test(leaf))i.category='Accessory';
+  else if(/^toys\b/i.test(name))i.category='Toy';
+  else if(!/^video games?\s*(?:&|and)\s*consoles$/i.test(leaf))i.category=name;
+ }
  if(i.condition==='Unknown'&&d.conditionName){i.condition=plain(d.conditionName);if(i.importedFrom==='ebay-production')i.acquiredCondition=i.condition;}
  if(!i.notes&&!i.editHistory?.length&&d.description)i.notes=plain(d.description,4000);
  if(!i.barcode&&(d.ean||d.upc))i.barcode=plain(d.ean||d.upc,32);

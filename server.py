@@ -9,6 +9,7 @@ import ebay_seller
 import item_identification
 import market_insights
 import market_overview
+import trade_manager
 
 ROOT = Path(__file__).resolve().parent
 PC_PRODUCT = "https://www.pricecharting.com/api/product"
@@ -963,6 +964,20 @@ class H(SimpleHTTPRequestHandler):
         self.end_headers(); self.wfile.write(raw)
     def do_POST(self):
         u = urlparse(self.path)
+        if u.path == "/api/trade-manager":
+            if self.headers.get("X-RetroHQ-Action") != "trade-manager" or self.headers.get("Sec-Fetch-Site", "same-origin") != "same-origin":
+                self.send_json({"ok":False,"status":"Request blocked."},403); return
+            try:
+                size = int(self.headers.get("Content-Length", "0"))
+                if not 1 <= size <= 2048:
+                    raise ValueError("Invalid size")
+                payload = json.loads(self.rfile.read(size).decode("utf-8"))
+                if not isinstance(payload,dict):
+                    raise ValueError("Invalid payload")
+            except (ValueError,UnicodeError):
+                self.send_json({"ok":False,"status":"Invalid manager request."},400); return
+            result, status = trade_manager.request(payload)
+            self.send_json(result,status); return
         if u.path == "/api/identify-photo":
             if self.headers.get("X-RetroHQ-Action") != "identify-photo" or self.headers.get("Sec-Fetch-Site", "same-origin") != "same-origin":
                 self.send_json({"ok":False,"status":"Request blocked."},403); return

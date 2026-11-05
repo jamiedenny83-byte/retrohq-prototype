@@ -28,12 +28,29 @@ class OverviewTests(unittest.TestCase):
             d=M.overview('games',self.auth)
         self.assertTrue(d['best']['ok']);self.assertEqual(self.auth.call_args_list[0].args[0],M.MARKETING_SCOPE);self.assertEqual(self.auth.call_args_list[1].args[0],M.BASE_SCOPE)
         self.assertIn('metric_name=BEST_SELLING',call.call_args_list[0].args[0].full_url);self.assertIn('category_id=139973',call.call_args_list[0].args[0].full_url)
-        self.assertNotIn('reviewCount',str(d));self.assertNotIn('private-token',str(d));self.assertEqual(d['high']['items'][0]['value'],500)
+        self.assertNotIn('reviewCount',str(d));self.assertNotIn('private-token',str(d))
+        self.assertEqual(d['active']['count'],1);self.assertIsNone(d['active']['median'])
     def test_invalid_category_and_sandbox_never_become_live_market_data(self):
         self.assertFalse(M.overview('unknown',self.auth)['ok']);self.auth.assert_not_called()
         self.auth.return_value.update(environment='sandbox')
         with patch.object(M,'urlopen') as call:d=M.overview('toys',self.auth)
-        self.assertFalse(d['best']['ok']);self.assertFalse(d['high']['ok']);call.assert_not_called()
+        self.assertFalse(d['best']['ok']);self.assertFalse(d['active']['ok']);call.assert_not_called()
+    def test_market_token_rejection_and_expensive_asks_do_not_swamp_category_sample(self):
+        def auth(scope):
+            if scope==M.MARKETING_SCOPE:return {'ok':False,'status':'eBay market authentication HTTP 400','detail':'private upstream detail'}
+            return self.auth()
+        prices=[5,10,15,20,25,30,35,200086.70]
+        rows=[{'itemId':f'v1|{123456780+n}|0','price':{'value':str(value),'currency':'GBP'},'buyingOptions':['FIXED_PRICE']} for n,value in enumerate(prices)]
+        rows.append({**rows[-1],'itemId':'v1|123456787|99'})
+        with patch.object(M,'urlopen',return_value=Reply({'itemSummaries':rows})) as browse:
+            data=M.overview('games',auth)
+        self.assertNotIn('sort=',browse.call_args.args[0].full_url)
+        self.assertEqual(data['best']['status'],'eBay UK best-sellers access unavailable')
+        self.assertIn('HTTP 400',data['best']['detail'])
+        self.assertNotIn('private upstream detail',str(data))
+        active=data['active']
+        self.assertEqual((active['count'],active['lower'],active['median'],active['upper']),(8,12.5,22.5,32.5))
+        self.assertNotIn('high',data)
     def test_missing_marketing_approval_is_visible_not_a_fake_best_seller_list(self):
         with patch.object(M,'urlopen',side_effect=HTTPError('url',403,'private-body',{},None)):
             d=M.overview('games',self.auth)

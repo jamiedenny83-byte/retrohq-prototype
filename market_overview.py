@@ -6,6 +6,7 @@ from urllib.error import HTTPError
 import json
 import math
 import re
+import statistics
 import threading
 import time
 from copy import deepcopy
@@ -74,6 +75,9 @@ def identity_search(query,browse):
 
 def read(path,params,token_fn,scope=BASE_SCOPE):
     auth=token_fn(scope)
+    if not auth.get('ok') and scope==MARKETING_SCOPE and auth.get('status')=='eBay market authentication HTTP 400':
+        return {'ok':False,'status':'eBay UK best-sellers access unavailable',
+                'detail':'eBay rejected the Buy Marketing token request (HTTP 400). Check Buy Marketing production access for this application in the eBay developer portal.'}
     if not auth.get('ok'): return {'ok':False,'status':auth.get('status','Application access unavailable'),
         'detail':auth.get('detail','')+(' Best-selling products require the buy.marketing application scope and production approval; seller consent is unchanged.' if scope==MARKETING_SCOPE else '')}
     if auth.get('environment')!='production':return {'ok':False,'status':'Production market access required','detail':'Sandbox data cannot represent the live UK market.'}
@@ -109,18 +113,25 @@ def overview(category,token_fn):
             products.append({'epid':epid,'title':str(x.get('title','Product'))[:250],'prices':prices[:8]})
         best={'ok':True,'checkedAt':now,'status':'eBay UK best-selling products','products':products[:10],
               'basis':'Provider best-selling category order. Sales quantities and ranking period are not supplied; ratings/reviews are not sales.'}
-    high=read('/buy/browse/v1/item_summary/search',{'category_ids':cid,'sort':'-price','limit':20,
-        'filter':'itemLocationCountry:GB,priceCurrency:GBP,buyingOptions:{FIXED_PRICE}'},token_fn)
-    if high.get('ok'):
-        items=[];seen=set()
-        for x in high['data'].get('itemSummaries',[]):
-            p=x.get('price') or {};v=amount(p.get('value'));id=str(x.get('itemId',''));url=safe_listing_url(x.get('itemWebUrl'),id)
-            if p.get('currency')!='GBP' or v is None or not id or id in seen or not url or 'FIXED_PRICE' not in x.get('buyingOptions',[]):continue
-            seen.add(id);items.append({'id':id,'title':str(x.get('title','Listing'))[:250],'value':v,'currency':'GBP','url':url,'condition':str(x.get('condition','Not supplied'))[:100]})
-        high={'ok':True,'checkedAt':now,'status':'Highest UK asking prices','items':sorted(items,key=lambda x:x['value'],reverse=True)[:10],
-              'basis':'Highest fixed-price asking listings returned for this category, excluding postage. Not sold prices, appraisals or guaranteed value; bundles/graded items may be included.'}
-    result={'ok':True,'category':category,'label':label,'categoryId':cid,'marketplace':'EBAY_GB','checkedAt':now,'best':best,'high':high}
-    if best.get('ok') and high.get('ok'):
+    active=read('/buy/browse/v1/item_summary/search',{'category_ids':cid,'limit':50,
+        'filter':'itemLocationCountry:GB,deliveryCountry:GB,buyingOptions:{FIXED_PRICE}'},token_fn)
+    if active.get('ok'):
+        prices={}
+        for item in active['data'].get('itemSummaries',[])[:50]:
+            price=item.get('price') or {}
+            value=amount(price.get('value'))
+            identity=re.fullmatch(r'v1\|([0-9]{6,20})\|[0-9]{1,20}',str(item.get('itemId','')))
+            if identity and price.get('currency')=='GBP' and value and 'FIXED_PRICE' in item.get('buyingOptions',[]):
+                prices.setdefault(identity.group(1),value)
+        values=sorted(prices.values())
+        active={'ok':True,'checkedAt':now,'count':len(values),'currency':'GBP','median':None,'lower':None,'upper':None}
+        if len(values)>=8:
+            middle=len(values)//2
+            active.update(median=round(statistics.median(values),2),
+                          lower=round(statistics.median(values[:middle]),2),
+                          upper=round(statistics.median(values[-middle:]),2))
+    result={'ok':True,'category':category,'label':label,'categoryId':cid,'marketplace':'EBAY_GB','checkedAt':now,'best':best,'active':active}
+    if best.get('ok') and active.get('ok'):
         with _lock:_cache[category]=(time.monotonic(),deepcopy(result))
     return result
 
