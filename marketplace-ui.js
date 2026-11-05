@@ -63,24 +63,172 @@ function install(c){
  root.liveSaveReplaceSale=n=>perform(()=>RetroLive.replaceImportedSale(state(),RetroLive.key(orderAt(n)),fields()));
  root.liveAccept=n=>{if(confirm('Accept changed revenue / fee evidence? This keeps the same physical units and requires actual costs again. Refund, quantity and identity changes remain blocked.'))perform(()=>RetroLive.acceptChange(state(),RetroLive.key(orderAt(n))));};
  root.liveReturn=n=>{if(confirm('Have ALL allocated physical units been received back? Confirm to retain the original sale history and send every unit for inspection. This does not issue a refund on eBay.'))perform(()=>RetroLive.restore(state(),RetroLive.key(orderAt(n))));};
+ const O=RetroOpportunities;
+ const routeText=row=>e(O.routeLabel(row));
+ function estimateHtml(row){
+  const {purchase,proceeds,landed,knownNet,profit}=O.estimate(row),route=O.route(row);
+  const known=Number.isFinite(knownNet);
+  const result=profit===null?knownNet:profit;
+  const caption=result<0?'Estimated loss':result>0?'Estimated profit':'Break even';
+  return '<div class="notice"><strong>'+routeText(row)+'</strong><p>Purchase '+(Number.isFinite(purchase)?m(purchase):'unknown')+' · '
+   +(route.cexRole==='sell'?'CeX cash quote ':'Expected sale price ')+(Number.isFinite(proceeds)?m(proceeds):'unknown')
+   +(landed===null?'':' · Total costs '+m(landed))+'</p>'
+   +(known?'<p><strong>'+caption+' '+m(Math.abs(result))+'</strong>'+(profit===null?' after entered costs · more costs to check':'')+'</p>'
+    :'<p>Add a purchase price and sale quote or estimate to calculate the result.</p>')
+   +(O.needsEditionCheck(row.sourceTitle)||O.needsEditionCheck(row.title)?'<p class="warning-text">Multicart or reproduction wording. Verify the exact product. Excluded from rankings.</p>':'')+'</div>';
+ }
  function opportunityView(){
   if(c.demo)return '<div class="card"><h2>Resale opportunities</h2><p>Live provider research is disabled in the offline demo.</p></div>';
   const rows=state().opportunities?.rows||[];
-  return '<div class="card"><h2>Top 10 · eBay to CeX cash</h2><p>Potential cash resale profit after all landed costs. CeX retail and voucher prices are never the payout. Identity, grade, completeness, availability and checkout costs require your review. Quotes expire after 24 hours; CeX may reject or regrade stock.</p><div class="toolbar"><input id="opQuery" class="input" placeholder="Exact item and platform"><select id="opCategory" class="select">'+RetroOpportunities.categories.map(x=>'<option>'+x+'</option>').join('')+'</select><button class="btn primary" onclick="opSearch()">Search eBay UK</button><button class="btn secondary" onclick="opManual()">Add an offer manually</button></div><p id="opMessage" role="status">'+e(marketMessage)+'</p><div id="opOffers">'+offerHtml()+'</div><p>Only supported eBay Browse access is used. Vinted access is not configured.</p></div>'+
-   RetroOpportunities.categories.map(cat=>{const ranked=RetroOpportunities.top(rows,cat);return '<div class="card"><h3>'+cat+' · Top '+ranked.length+'</h3>'+ranked.map((x,n)=>'<div class="row marketplace-row"><div><strong>'+(n+1)+'. '+e(x.row.title)+'</strong><p>'+e(x.row.platform)+' · '+e(x.row.condition)+' · '+e(x.row.completeness)+'</p><p>CeX cash '+m(x.row.cex.cash)+' − landed '+m(x.landed)+' = potential profit <strong>'+m(x.profit)+'</strong>'+(x.roi===null?'':' · ROI '+x.roi.toFixed(1)+'%')+'</p><small>Checked '+e(x.row.cex.checkedAt)+' · '+e(x.row.cex.product)+'</small></div><button class="btn secondary" onclick="opEdit('+rows.indexOf(x.row)+')">Review evidence / costs</button></div>').join('')+(ranked.length?'':'<p>No fully checked profitable offers yet. Unknown costs and stale evidence are excluded.</p>')+'</div>';}).join('')+
-   '<details class="card"><summary>Watchlist and excluded offers ('+rows.length+')</summary>'+rows.map((r,n)=>{const x=RetroOpportunities.evaluate(r);return '<div class="row marketplace-row"><div><strong>'+e(r.title)+'</strong><p>'+e(x.eligible?'Eligible for ranking':x.reasons.join(' · '))+'</p></div><div><button class="btn secondary" onclick="opEdit('+n+')">Review</button><button class="btn secondary" onclick="opRemove('+n+')">Remove</button></div></div>';}).join('')+'</details>';
+  const rankedHtml=(row,n)=>'<div class="row marketplace-row"><div><strong>'+(n+1)+'. '+e(row.row.title)+'</strong><p>'+e(row.row.platform)+' · '+e(row.row.condition)+' · '+e(row.row.completeness)+'</p>'+estimateHtml(row.row)+'</div><button class="btn secondary" onclick="opEdit('+rows.indexOf(row.row)+')">Review evidence / costs</button></div>';
+  return '<div class="card"><h2>Compare resale routes</h2><p>Choose where to buy and where to sell. Check the exact edition, purchase costs and sale evidence.</p><div class="toolbar"><input id="opQuery" class="input" placeholder="Exact item and platform"><select id="opCategory" class="select">'+O.categories.map(x=>'<option>'+x+'</option>').join('')+'</select><button class="btn primary" onclick="opSearch()">Search eBay UK</button><button class="btn secondary" onclick="opManual(&quot;cex-ebay&quot;)">Check a CeX purchase</button><button class="btn secondary" onclick="opManual()">Add offer manually</button></div><p id="opMessage" role="status">'+e(marketMessage)+'</p><div id="opOffers">'+offerHtml()+'</div></div>'+
+   O.categories.map(category=>{const ranked=O.top(rows,category);return '<div class="card"><h3>'+category+' · Top '+ranked.length+' reviewed routes</h3>'+ranked.map(rankedHtml).join('')+(ranked.length?'':'<p>Review an offer to start ranking this category. Estimates need complete costs and current evidence.</p>')+'</div>';}).join('')+
+   '<details class="card"><summary>Saved offers ('+rows.length+')</summary>'+rows.map((r,n)=>{const x=O.evaluate(r);return '<div class="row marketplace-row"><div><strong>'+e(r.title)+'</strong>'+estimateHtml(r)+'<p>'+e(x.eligible?'Eligible for ranking':x.reasons.join(' · '))+'</p></div><div><button class="btn secondary" onclick="opEdit('+n+')">Review</button><button class="btn secondary" onclick="opRemove('+n+')">Remove</button></div></div>';}).join('')+'</details>';
  }
- function offerHtml(){return offers.map((x,n)=>'<div class="row marketplace-row"><div><strong>'+e(x.title)+'</strong><p>'+e(x.condition)+' · '+(x.currency==='GBP'&&x.price!=null?m(x.price):'Price unknown')+' · postage '+(x.shipping==null?'unknown':m(x.shipping))+'</p></div><button class="btn secondary" onclick="opOffer('+n+')">Review costs &amp; CeX</button></div>').join('');}
- root.opSearch=async()=>{if(c.demo||busy)return;const q=$('#opQuery')?.value.trim();if(!q)return;const category=$('#opCategory').value,msgBox=$('#opMessage'),offerBox=$('#opOffers');busy=true;marketMessage='Searching supported eBay UK access…';msgBox.textContent=marketMessage;try{const response=await c.fetch('/api/ebay-search?'+new URLSearchParams({q})),d=await response.json();if(!d.ok||d.environment!=='production')throw Error(d.environment==='sandbox'?'Only Sandbox is configured. Add production Browse credentials; no real opportunities can be shown.':d.status||'eBay market access unavailable.');offers=(d.items||[]).map(x=>({...x,category,query:q}));marketMessage=offers.length+' active asking-price offers. Review exact identity and all checkout costs before ranking.';}catch(error){offers=[];marketMessage=error.message;}finally{busy=false;if($('#opMessage')===msgBox){msgBox.textContent=marketMessage;offerBox.innerHTML=offerHtml();}}};
- function editDraft(){cexCandidates=[];const r=draft;c.open('<h2>Review resale opportunity</h2><p>Save incomplete research to the watchlist; only complete, fresh, profitable offers enter Top 10.</p><div class="formgrid">'+[['title','Offer title'],['platform','Exact platform / revision'],['condition','Condition / CeX grade'],['completeness','Edition / completeness / accessories'],['url','eBay UK item URL']].map(([k,label])=>'<label>'+label+'<input id="op-'+k+'" class="input" value="'+e(r[k]||'')+'"></label>').join('')+'<label>Category<select id="op-category" class="select">'+RetroOpportunities.categories.map(x=>'<option '+(r.category===x?'selected':'')+'>'+x+'</option>').join('')+'</select></label>'+RetroOpportunities.costs.map(k=>'<label>'+({purchase:'Purchase price',shipping:'Inbound postage',buyerFees:'Buyer / checkout fees',destination:'Delivery / travel to CeX',repair:'Repair / replacement',risk:'Risk allowance'}[k])+' (£)<input id="op-cost-'+k+'" class="input" type="number" min="0" step="0.01" value="'+(r.costs?.[k]??'')+'"></label>').join('')+'<label>Minimum cash profit (£)<input id="op-minProfit" class="input" type="number" min="0" step="0.01" value="'+(r.minProfit??2)+'"></label></div><label><input id="op-identityConfirmed" type="checkbox" '+(r.identityConfirmed?'checked':'')+'> I checked the exact identity, platform, condition and completeness against the CeX record.</label><label><input id="op-available" type="checkbox" '+(r.available?'checked':'')+'> I checked the offer is still available at the entered GBP fixed price, including checkout charges.</label><div class="toolbar"><input id="op-cexQuery" class="input" value="'+e(r.query||r.title||'')+'" placeholder="Exact CeX product / platform"><button class="btn secondary" onclick="opCexSearch()">Find CeX record</button></div><div id="opCexEvidence">'+cexHtml()+'</div><div class="modal-actions"><button class="btn secondary" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="opSave()">Save reviewed offer</button></div>');}
- function cexHtml(){const x=draft.cex;return x?'<p>CeX CASH '+m(x.cash)+' · '+e(x.product)+' · '+e(x.category||'Check exact platform')+' · checked '+e(x.checkedAt)+' · '+e(x.cashSource||'CeX quote')+'</p><a target="_blank" rel="noopener noreferrer" href="https://uk.webuy.com/product-detail?id='+encodeURIComponent(x.productId)+'">View exact CeX record</a><p>Refresh by finding and selecting the exact record again.</p>':'<p>No verified CeX cash quote selected.</p>';}
- root.opReviewOffer=x=>{if(!x||!safeUrl(x.itemWebUrl)||x.currency!=='GBP'||!Number.isFinite(x.price)||x.price<0||!x.buyingOptions?.includes('FIXED_PRICE'))return;draft={id:crypto.randomUUID(),title:x.title,category:x.category,query:x.query,url:x.itemWebUrl,source:'eBay Browse',environment:'production',currency:x.currency,condition:x.condition,checkedAt:x.checkedAt,costs:{purchase:x.price,shipping:x.shipping},fixedPrice:x.buyingOptions?.includes('FIXED_PRICE')===true,available:false,identityConfirmed:false,minProfit:2};editDraft();};
+ function offerHtml(){
+  return offers.map((x,n)=>'<div class="row marketplace-row"><div><strong>'+e(x.title)+'</strong><p>Buy on eBay '+(x.currency==='GBP'&&x.price!=null?m(x.price):'Price unknown')+' · postage '+(x.shipping==null?'unknown':m(x.shipping))+'</p><small>Compare CeX cash or in-store resale</small></div><button class="btn secondary" onclick="opOffer('+n+')">Compare routes</button></div>').join('');
+ }
+ root.opSearch=async()=>{
+  if(c.demo||busy)return;
+  const q=$('#opQuery')?.value.trim();if(!q)return;
+  const category=$('#opCategory').value,msgBox=$('#opMessage'),offerBox=$('#opOffers');
+  busy=true;marketMessage='Searching eBay UK…';msgBox.textContent=marketMessage;
+  try{
+   const response=await c.fetch('/api/ebay-search?'+new URLSearchParams({q})),data=await response.json();
+   if(!data.ok||data.environment!=='production')throw Error(data.status||'eBay market access unavailable.');
+   offers=(data.items||[]).filter(x=>safeUrl(x.itemWebUrl)&&x.currency==='GBP'&&Number.isFinite(x.price)&&x.buyingOptions?.includes('FIXED_PRICE')).map(x=>({...x,category,query:q}));
+   marketMessage=offers.length+' eBay offers to review.';
+  }catch(error){offers=[];marketMessage=error.message;}
+  finally{busy=false;if($('#opMessage')===msgBox){msgBox.textContent=marketMessage;offerBox.innerHTML=offerHtml();}}
+ };
+ const costLabels={purchase:'Purchase price',shipping:'Inbound postage',buyerFees:'Buyer / checkout fees',destination:'Selling postage / travel',repair:'Repair / replacement',risk:'Risk allowance',sellerFees:'Selling / payment fees'};
+ const numberField=(id,label,value,readonly=false)=>'<label>'+label+' (£)<input id="'+id+'" class="input" type="number" min="0" step="0.01" value="'+e(value??'')+'" '+(readonly?'readonly':'')+'></label>';
+ function editDraft(){
+  cexCandidates=[];
+  const r=draft,route=O.route(r),isCexBuy=route.cexRole==='buy',expected=route.cexRole!=='sell';
+  const titleFields=[['title','Offer title'],['platform','Exact platform / revision'],['condition','Condition / grade'],['completeness','Edition / completeness / accessories']];
+  if(!isCexBuy)titleFields.push(['url','eBay UK item URL']);
+  c.open(`<h2>Review resale opportunity</h2><div id="opReviewForm">
+   <label>Buy and sell route<select id="op-route" class="select" onchange="opChangeRoute(this.value)">${Object.keys(O.routes).map(key=>'<option value="'+key+'" '+((r.route||'ebay-cex')===key?'selected':'')+'>'+routeText({route:key})+'</option>').join('')}</select></label>
+   <div id="opEstimate" role="status">${estimateHtml(r)}</div>
+   <div class="formgrid">${titleFields.map(([key,label])=>'<label>'+label+'<input id="op-'+key+'" class="input" value="'+e(r[key]||'')+'"></label>').join('')}
+    <label>Category<select id="op-category" class="select">${O.categories.map(x=>'<option '+(r.category===x?'selected':'')+'>'+x+'</option>').join('')}</select></label>
+    ${expected?numberField('op-expectedSale',route.sell==='eBay'?'Expected eBay sale price':'Expected in-store sale price',r.expectedSale):''}
+    ${expected?'<label>Sale price evidence<input id="op-saleEvidence" class="input" maxlength="240" value="'+e(r.saleEvidence||'')+'" placeholder="e.g. Recent sold comps or your shop sales"></label>':''}</div>
+   ${route.cexRole?`<div class="toolbar"><label>Exact CeX product<input id="op-cexQuery" class="input" value="${e(r.query||r.title||'')}"></label><button class="btn secondary" onclick="opCexSearch()">Find CeX record</button></div><div id="opCexEvidence">${cexHtml()}</div>`:''}
+   <h3>Costs for this route</h3><p>Enter zero for costs that do not apply.</p>
+   <div class="formgrid">${O.requiredCosts(r).map(key=>numberField('op-cost-'+key,key==='destination'&&route.cexRole==='sell'?'Delivery / travel to CeX':costLabels[key],key==='purchase'&&isCexBuy?r.cex?.retail:r.costs?.[key],key==='purchase'&&isCexBuy)).join('')}</div>
+   <label><input id="op-identityConfirmed" type="checkbox" ${r.identityConfirmed?'checked':''}> I checked the exact product, edition, grade and contents for this route.</label>
+   <label><input id="op-available" type="checkbox" ${r.available?'checked':''}> I checked availability and the GBP purchase price.</label>
+   ${expected?'<label><input id="op-saleConfirmed" type="checkbox" '+(r.saleCheckedAt?'checked':'')+'> I checked the expected sale price against the evidence above.</label>':''}
+   <details><summary>Ranking settings</summary>${numberField('op-minProfit','Minimum profit to qualify',r.minProfit??2)}<p>This amount is the ranking threshold.</p></details>
+   <p id="opReviewError" role="alert"></p>
+   <div class="modal-actions"><button class="btn secondary" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="opSave()">Save reviewed route</button></div>
+  </div>`);
+  $('#opReviewForm').oninput=event=>{
+   const id=event.target.id;
+   if(['op-title','op-platform','op-condition','op-completeness','op-cexQuery'].includes(id))$('#op-identityConfirmed').checked=false;
+   if(id==='op-cexQuery'&&draft.cex){
+    draft.cex=null;
+    $('#opCexEvidence').innerHTML=cexHtml();
+    if(isCexBuy){$('#op-cost-purchase').value='';$('#op-available').checked=false;}
+   }
+   if(['op-cost-purchase','op-url'].includes(id))$('#op-available').checked=false;
+   if(['op-expectedSale','op-saleEvidence'].includes(id)&&$('#op-saleConfirmed'))$('#op-saleConfirmed').checked=false;
+   $('#opEstimate').innerHTML=estimateHtml(readDraft());
+  };
+ }
+ function readDraft(){
+  const number=id=>{const raw=$(id)?.value;return raw==null||raw===''?null:Number(raw);};
+  const r={...draft,route:draft.route||'ebay-cex',costs:{}};
+  for(const key of ['title','platform','condition','completeness','url'])r[key]=$('#op-'+key)?.value.trim()||'';
+  r.category=$('#op-category').value;
+  for(const key of O.requiredCosts(r))r.costs[key]=number('#op-cost-'+key);
+  r.minProfit=number('#op-minProfit');
+  r.expectedSale=number('#op-expectedSale');r.saleEvidence=$('#op-saleEvidence')?.value.trim()||'';
+  r.identityConfirmed=$('#op-identityConfirmed').checked;r.available=$('#op-available').checked;
+  if($('#op-cexQuery'))r.query=$('#op-cexQuery').value.trim();
+  return r;
+ }
+ root.opChangeRoute=key=>{
+  if(!Object.hasOwn(O.routes,key))return;
+  const r=readDraft(),before=O.route(r);
+  r.route=key;
+  const after=O.route(r);
+  if(before.buy!==after.buy){
+   r.url='';r.costs={};r.available=false;delete r.sourceTitle;
+   r.source=after.cexRole==='buy'?'CeX catalogue':'Manual eBay offer';
+  }
+  if(before.sell!==after.sell){
+   delete r.costs.destination;delete r.costs.sellerFees;
+   r.expectedSale=null;r.saleEvidence='';r.saleCheckedAt=null;
+  }
+  r.identityConfirmed=false;draft=r;editDraft();
+ };
+ function cexHtml(){
+  const x=draft.cex,role=O.route(draft).cexRole;
+  const value=role==='buy'?x?.retail:x?.cash;
+  if(!x||!Number.isFinite(value))return '<p>Select the exact CeX record for this route.</p>';
+  return '<p><strong>'+e(role==='buy'?'CeX retail purchase price':'CeX cash quote')+' '+m(value)+'</strong> · '+e(x.product)+' · '+e(x.category||'Check exact platform')+'</p><a target="_blank" rel="noopener noreferrer" href="https://uk.webuy.com/product-detail?id='+encodeURIComponent(x.productId)+'">View exact CeX record</a>';
+ }
+ root.opReviewOffer=x=>{
+  if(!x||!safeUrl(x.itemWebUrl)||x.currency!=='GBP'||!Number.isFinite(x.price)||x.price<0||!x.buyingOptions?.includes('FIXED_PRICE'))return;
+  draft={id:crypto.randomUUID(),route:'ebay-cex',title:x.title,sourceTitle:x.title,category:x.category,query:x.query,url:x.itemWebUrl,source:'eBay Browse',environment:'production',currency:x.currency,condition:x.condition,checkedAt:x.checkedAt,costs:{purchase:x.price,shipping:x.shipping},fixedPrice:true,available:false,identityConfirmed:false,minProfit:2};
+  editDraft();
+ };
  root.opOffer=n=>root.opReviewOffer(offers[n]);
- root.opManual=()=>{draft={id:crypto.randomUUID(),title:'',source:'Manual eBay offer',environment:'production',currency:'GBP',category:$('#opCategory')?.value||'Games',costs:{},fixedPrice:true,minProfit:2};editDraft();};
- root.opEdit=n=>{draft=JSON.parse(JSON.stringify(state().opportunities.rows[n]));editDraft();};
- root.opCexSearch=async()=>{if(c.demo||busy)return;busy=true;const box=$('#opCexEvidence');box.textContent='Checking CeX catalogue…';try{const response=await c.fetch('/api/opportunity-cex?'+new URLSearchParams({q:$('#op-cexQuery').value})),d=await response.json();cexCandidates=d.candidates||[];box.innerHTML=cexCandidates.map((x,n)=>'<div class="row marketplace-row"><span>'+e(x.product)+' · '+e(x.category||'Check platform')+' · '+e(x.grade||'Check grade / edition')+'</span><button class="btn secondary" onclick="opCexSelect('+n+')">Check cash quote</button></div>').join('')||'<p>'+e(d.status||'No exact record found.')+'</p>';}catch{box.textContent='CeX unavailable. Existing evidence retained.';}finally{busy=false;}};
- root.opCexSelect=async n=>{if(c.demo||busy)return;const activeDraft=draft,box=$('#opCexEvidence');const x=cexCandidates[n];if(!x)return;busy=true;try{const response=await c.fetch('/api/opportunity-cex?'+new URLSearchParams({q:$('#op-cexQuery').value,id:x.productId})),d=await response.json();if(!d.ok||!d.verified)throw Error(d.status||'Cash quote unavailable.');if(draft!==activeDraft||$('#opCexEvidence')!==box)return;draft.cex=d;draft.identityConfirmed=false;$('#op-identityConfirmed').checked=false;$('#opCexEvidence').innerHTML=cexHtml();}catch(error){if($('#opCexEvidence')===box)box.textContent=error.message;}finally{busy=false;}};
- root.opSave=()=>{if(busy)return;try{const r={...draft,costs:{}};for(const k of ['title','platform','condition','completeness','url'])r[k]=$('#op-'+k).value.trim();r.category=$('#op-category').value;for(const k of RetroOpportunities.costs){const raw=$('#op-cost-'+k).value;r.costs[k]=raw===''?null:Number(raw);if(r.costs[k]!==null&&(!Number.isFinite(r.costs[k])||r.costs[k]<0))throw Error('Costs must be positive or explicit zero.');}r.minProfit=Number($('#op-minProfit').value);if(!Number.isFinite(r.minProfit)||r.minProfit<0)throw Error('Enter a valid minimum profit.');r.identityConfirmed=$('#op-identityConfirmed').checked;r.available=$('#op-available').checked;r.checkedAt=r.available?new Date().toISOString():r.checkedAt;r.query=$('#op-cexQuery').value.trim();if(!r.title||!safeUrl(r.url))throw Error('Enter an offer title and a valid https://www.ebay.co.uk/itm/ item URL.');const rows=(state().opportunities?.rows||[]).filter(x=>x.id!==r.id);rows.push(r);c.commit({...state(),opportunities:{rows}});c.close();c.render();}catch(error){alert(error.message);}};
+ root.opManual=(route='ebay-cex')=>{
+  draft={id:crypto.randomUUID(),route,title:'',source:O.route({route}).cexRole==='buy'?'CeX catalogue':'Manual eBay offer',environment:'production',currency:'GBP',category:$('#opCategory')?.value||'Games',costs:{},fixedPrice:true,minProfit:2};
+  editDraft();
+ };
+ root.opEdit=n=>{draft=JSON.parse(JSON.stringify(state().opportunities.rows[n]));draft.available=false;draft.saleCheckedAt=null;editDraft();};
+ root.opCexSearch=async()=>{
+  if(c.demo||busy)return;
+  const box=$('#opCexEvidence');if(!box)return;
+  busy=true;box.textContent='Checking CeX catalogue…';
+  try{
+   const response=await c.fetch('/api/opportunity-cex?'+new URLSearchParams({q:$('#op-cexQuery').value})),data=await response.json();
+   if(!box.isConnected)return;
+   cexCandidates=data.candidates||[];
+   box.innerHTML=cexCandidates.map((x,n)=>'<div class="row marketplace-row"><span>'+e(x.product)+' · '+e(x.category||'Check platform')+' · '+e(x.grade||'Check grade / edition')+'</span><button class="btn secondary" onclick="opCexSelect('+n+')">Use exact record</button></div>').join('')||'<p>'+e(data.status||'No exact record found.')+'</p>';
+  }catch{if(box.isConnected)box.textContent='CeX unavailable. Previous evidence retained.';}
+  finally{busy=false;}
+ };
+ root.opCexSelect=async n=>{
+  const box=$('#opCexEvidence'),x=cexCandidates[n],r=draft;
+  if(c.demo||busy||!x||!box)return;
+  busy=true;
+  try{
+   const response=await c.fetch('/api/opportunity-cex?'+new URLSearchParams({q:$('#op-cexQuery').value,id:x.productId})),data=await response.json();
+   if(!box.isConnected||r!==draft)return;
+   const isBuy=O.route(r).cexRole==='buy';
+   if(!data.ok||(isBuy?!data.retailVerified:!data.verified))throw Error('No '+(isBuy?'retail purchase price':'cash quote')+' available for this record.');
+   draft.cex=data;
+   $('#op-identityConfirmed').checked=false;
+   if(isBuy){
+    $('#op-cost-purchase').value=data.retail;
+    $('#op-available').checked=false;
+    if(!$('#op-title').value)$('#op-title').value=data.product;
+   }
+   box.innerHTML=cexHtml();$('#opEstimate').innerHTML=estimateHtml(readDraft());
+  }catch(error){if(box.isConnected)box.textContent=error.message;}
+  finally{busy=false;}
+ };
+ root.opSave=()=>{
+  if(busy)return;
+  try{
+   const r=readDraft(),now=new Date().toISOString();
+   if(!r.title||O.route(r).buy==='eBay'&&!safeUrl(r.url))throw Error('Enter an offer title and, for eBay purchases, a valid eBay UK item URL.');
+   for(const value of [...Object.values(r.costs),r.expectedSale,r.minProfit]){
+    if(value!==null&&(!Number.isFinite(value)||value<0))throw Error('Enter positive amounts or explicit zero.');
+   }
+   r.minProfit??=2;
+   r.checkedAt=r.available?now:r.checkedAt;
+   r.saleCheckedAt=$('#op-saleConfirmed')?.checked?now:null;
+   const rows=(state().opportunities?.rows||[]).filter(x=>x.id!==r.id);
+   rows.push(r);c.commit({...state(),opportunities:{rows}});c.close();c.render();
+  }catch(error){$('#opReviewError').textContent=error.message;}
+ };
  root.opRemove=n=>{if(confirm('Remove this saved research offer?')){const rows=state().opportunities.rows.slice();rows.splice(n,1);c.commit({...state(),opportunities:{rows}});c.render();}};
  return {liveView,salesView,opportunityView,refresh,get busy(){return busy;}};
 }

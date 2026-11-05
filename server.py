@@ -157,10 +157,12 @@ def opportunity_cex(query, product_id=None):
         if not detail:return {"ok":False,"status":"CeX record unavailable."}
         prices=_cex_prices(detail)
         cash=prices.get("cash") if prices.get("cashSource") in ("cex-listed","cex-calculated") else None
-        return {"ok":cash is not None,"status":"Cash quote checked" if cash is not None else "CeX cash quote unavailable",
+        retail=prices.get("retail")
+        return {"ok":cash is not None or retail is not None,"status":"CeX record checked" if cash is not None or retail is not None else "CeX prices unavailable",
                 "productId":str(_first(detail,"boxId","box_id","objectID","id") or product_id),
                 "product":str(_first(detail,"boxName","name","title","productName") or ""),
-                "cash":cash,"cashSource":prices.get("cashSource"),"category":_cex_category_text(detail),"verified":cash is not None,
+                "cash":cash,"cashSource":prices.get("cashSource"),"retail":retail,"retailVerified":retail is not None,
+                "category":_cex_category_text(detail),"verified":cash is not None,
                 "checkedAt":datetime.now(timezone.utc).isoformat()}
     # This is a catalogue chooser, not an automatic identity match. Return the
     # actual candidates across games/hardware/accessories for explicit review.
