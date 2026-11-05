@@ -61,5 +61,15 @@ function saveBenchmark(item,value,evidence,now){
  copy.timeline.push(['Value updated','CeX UK retail benchmark £'+value.toFixed(2)]);
  return copy;
 }
-const api={sold,steps,stage,transition,edit,identify,saveBenchmark};if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.RetroItems=api;
+function changeStockRemoval(item,remove,reason,now){
+ if(sold(item)||item.importHold||!!item.stockRemoval===remove)throw Error('This item is no longer eligible for that action.');
+ reason=String(reason??'').trim();
+ if(!reason||reason.length>240||/[<>"`\x00-\x1f]/.test(reason)||/^javascript:/i.test(reason))throw Error('Enter a plain-text reason (1–240 characters).');
+ const copy=JSON.parse(JSON.stringify(item));
+ if(remove)copy.stockRemoval={date:now,reason};
+ else delete copy.stockRemoval;
+ copy.timeline.push([remove?'Removed from stock by manager':'Restored to stock by manager',now+' · '+reason]);
+ return copy;
+}
+const api={sold,steps,stage,transition,edit,identify,saveBenchmark,changeStockRemoval};if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.RetroItems=api;
 })(typeof globalThis!=='undefined'?globalThis:this);

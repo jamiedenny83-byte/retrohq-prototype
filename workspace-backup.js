@@ -21,6 +21,12 @@ function validate(state){
   if(!object(i)||!Number.isSafeInteger(i.id)||ids.has(i.id)||typeof i.title!=='string'||!i.title.trim()||typeof i.status!=='string'||!Array.isArray(i.timeline)||i.timeline.some(t=>!Array.isArray(t)||t.length<2||t.some(v=>typeof v!=='string')))fail('Invalid or duplicate inventory record.');
   if(i.photoData!=null&&!(typeof i.photoData==='string'&&i.photoData.length<=250000&&/^data:image\/jpeg;base64,[A-Za-z0-9+/]+={0,2}$/.test(i.photoData)))fail('Invalid reference photo.');
   ids.add(i.id);
+  if(i.stockRemoval!==undefined){
+   const removal=i.stockRemoval;
+   if(!object(removal)||typeof removal.reason!=='string'||!removal.reason.trim()||removal.reason.length>240||
+      typeof removal.date!=='string'||!Number.isFinite(Date.parse(removal.date))||i.sale||i.importHold||
+      ['Sold','Packaged','Dispatched','Delivered','Completed'].includes(i.status))fail('Invalid manager stock removal.');
+  }
   for(const k of ['buy','processingCosts'])if(!(i[k]===null&&(['eBay import','CSV import'].includes(i.source)&&['ebay-production','stock-csv'].includes(i.importedFrom)))&&(typeof i[k]!=='number'||!Number.isFinite(i[k])||i[k]<0))fail('Invalid purchase or processing cost.');
   if(i.sale!=null&&(!object(i.sale)||typeof i.sale.price!=='number'||i.sale.price<0||typeof i.sale.date!=='string'))fail('Invalid sale record.');
  }

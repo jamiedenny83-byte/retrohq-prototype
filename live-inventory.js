@@ -3,7 +3,7 @@
 'use strict';
 const copy=x=>JSON.parse(JSON.stringify(x)),obj=x=>x&&typeof x==='object'&&!Array.isArray(x);
 const key=l=>JSON.stringify(['ebay','production',l.orderId,l.lineItemId]);
-const available=i=>!i.importHold&&!i.sale&&!['Sold','Packaged','Dispatched','Delivered','Completed'].includes(i.status);
+const available=i=>!i.stockRemoval&&!i.importHold&&!i.sale&&!['Sold','Packaged','Dispatched','Delivered','Completed'].includes(i.status);
 const identity=l=>obj(l)&&typeof l.orderId==='string'&&/^[a-zA-Z0-9._:-]+$/.test(l.orderId)&&typeof l.lineItemId==='string'&&/^[a-zA-Z0-9._:-]+$/.test(l.lineItemId);
 const valid=l=>identity(l)&&l.eligible===true&&l.paymentStatus==='PAID'&&['NONE','NOT_REQUESTED','NONE_REQUESTED'].includes(l.cancelState)&&l.refundDetected===false&&l.currency==='GBP'&&Number.isSafeInteger(l.quantity)&&l.quantity>0&&Number.isFinite(l.price)&&l.price>=0&&/^\d{4}-\d{2}-\d{2}$/.test(l.date)&&typeof l.listingId==='string'&&typeof l.sku==='string';
 const listingKey=l=>JSON.stringify([l.listingId,l.sku||'']);
@@ -145,7 +145,8 @@ function syncInventory(state,snapshot,options={}){
  const previous=live.inventoryBaseline||null;
  const ordersBefore=copy(live.orders);
  Object.assign(live,{listings:copy(snapshot.listings),orders:copy(snapshot.orders),checkedAt:snapshot.checkedAt,partial:!!(snapshot.listingTruncated||snapshot.orderTruncated),note:snapshot.note||'',issues:[],createdThisSync:0});
- for(const i of next.items.filter(i=>i.liveListingId||i.sale?.productionKey)){
+ const removedLinks=new Set(next.items.filter(i=>i.stockRemoval&&i.liveListingId).map(i=>listingKey({listingId:i.liveListingId,sku:i.liveSku||''})));
+ for(const i of next.items.filter(i=>!i.stockRemoval&&(i.liveListingId||i.sale?.productionKey))){
   attachFeeDefault(next,i);
   const listing=live.listings.find(l=>pair(i,l));if(listing)enrichUnit(next,i,listing);
   if(i.sale&&i.sale.feeValue==null&&i.sellingFeeEstimate){Object.assign(i.sale,{feeType:i.sellingFeeEstimate.type,feeValue:i.sellingFeeEstimate.value,feeEstimated:true});}
@@ -170,6 +171,9 @@ function syncInventory(state,snapshot,options={}){
   const decline=Number.isSafeInteger(priorQuantity)?Math.max(0,priorQuantity-remaining):0;
   const observedSale=decline-(consumed.get(listingKey(l))||0)>=l.quantity;
   const units=exactIdentity&&!options.forceNewOrders?.includes(key(l))&&(current||sameDay||(!options.ordersOnly&&observedSale&&(!options.importSalesHistory||ordersBefore.some(p=>key(p)===key(l)&&p.paymentStatus!=='PAID'))))?next.items.filter(i=>available(i)&&pair(i,l)).slice(0,l.quantity):[];
+  if(removedLinks.has(listingKey(l))&&units.length<l.quantity&&!options.approvedOrders?.includes(key(l))){
+   live.issues.push('Order '+l.orderId+': linked stock was removed by a manager. Restore or match the physical stock in review.');continue;
+  }
   if(options.deferNew&&!options.importSalesHistory&&units.length<l.quantity&&!options.approvedOrders?.includes(key(l))){live.issues.push('Order '+l.orderId+': match existing stock or confirm unrecorded sold units in Stock review.');continue;}
   consumed.set(listingKey(l),(consumed.get(listingKey(l))||0)+units.length);
   while(units.length<l.quantity)units.push(importUnit(next,{...l,price:null,...(live.listings.find(x=>x.listingId===l.listingId&&x.sku===l.sku)||{})},'order'));
@@ -184,11 +188,12 @@ function syncInventory(state,snapshot,options={}){
    // unchanged remote quantity must never recreate a locally sold/unlinked unit.
    const allowance=prior&&prior.quantity!==null?Math.max(0,l.quantity-(prior.quantity??l.quantity)):l.quantity;
    const approved=options.approvedListings?.includes(listingKey(l));
-   const add=options.deferNew&&!approved?0:Math.min(approved?l.quantity:allowance,Math.max(0,l.quantity-units.length));
+   const removed=removedLinks.has(listingKey(l));
+   const add=removed||options.deferNew&&!approved?0:Math.min(approved?l.quantity:allowance,Math.max(0,l.quantity-units.length));
    for(let n=0;n<add;n++)importUnit(next,l,'listing');
    const linked=next.items.filter(i=>available(i)&&pair(i,l));
    for(const i of linked){enrichUnit(next,i,l);i.liveSnapshot={...copy(l),checkedAt:live.checkedAt};i.listing={channel:'eBay Live',price:l.currency==='GBP'?l.price:null,date:i.listing?.date||(l.startDate||'').slice(0,10)};}
-   if(linked.length!==l.quantity)live.issues.push('Listing '+l.listingId+' / '+plain(l.sku||'no SKU')+': eBay has '+l.quantity+' available; RetroHQ has '+linked.length+'. Check orders, restocking and other-channel sales. Stock was not deleted or recreated.');
+   if(linked.length!==l.quantity)live.issues.push('Listing '+l.listingId+' / '+plain(l.sku||'no SKU')+': eBay has '+l.quantity+' available; RetroHQ has '+linked.length+'. '+(removed?'Manager removal blocks additions for this listing variation.':'Check orders, restocking and other-channel sales. Stock was not deleted or recreated.'));
   }
   for(const i of next.items.filter(i=>available(i)&&i.liveListingId))if(!live.listings.some(l=>pair(i,l))){i.liveSnapshot={status:'Not in active snapshot — verify on eBay',checkedAt:live.checkedAt};live.issues.push('Item '+i.id+': listing no longer active. Verify physical stock; it is retained.');}
   live.inventoryBaseline={checkedAt:live.checkedAt,quantities:[...(previous?.quantities||[]).filter(p=>!live.listings.some(l=>pair({liveListingId:p.listingId,liveSku:p.sku},l))),...live.listings.map(l=>({listingId:l.listingId,sku:l.sku,quantity:l.quantity}))]};

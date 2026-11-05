@@ -3,7 +3,7 @@
 'use strict';
 const round=n=>Math.round(n*100)/100;
 const amount=n=>n!==null&&n!==undefined&&n!==''&&Number.isFinite(Number(n))&&Number(n)>=0;
-const active=i=>!i.importHold&&!i.sale&&!['Sold','Packaged','Dispatched','Delivered','Completed'].includes(i.status);
+const active=i=>!i.stockRemoval&&!i.importHold&&!i.sale&&!['Sold','Packaged','Dispatched','Delivered','Completed'].includes(i.status);
 function age(value,now=new Date().toISOString()){if(!value)return null;const a=Date.parse(value),b=Date.parse(now);return Number.isFinite(a)&&Number.isFinite(b)&&a<=b?Math.floor((b-a)/86400000):null;}
 function economics(i){
  const s=i.sale;if(!s||s.reviewNeeded||!s.costsConfirmed||(i.returns||[]).length||(i.saleHistory||[]).length)return {profit:null,margin:null,roi:null,net:null};

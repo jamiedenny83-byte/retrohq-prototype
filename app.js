@@ -34,7 +34,7 @@ function signalHtml(i){const x=itemSignals(i);return x.length?`<div class="item-
 function workflowTasks(){
  const tasks=[];
  state.items.forEach(i=>{
-   if(i.importHold||RetroItems.sold(i)&&!['Sold','Packaged'].includes(i.status))return;let task=null;
+   if(i.stockRemoval||i.importHold||RetroItems.sold(i)&&!['Sold','Packaged'].includes(i.status))return;let task=null;
    if(['Sold','Packaged'].includes(i.status)&&i.sale)task={rank:1000,label:'Dispatch sold item',detail:i.title,item:i};
    else if(i.needsIdentification)task={rank:950,label:'Identify item',detail:i.title,item:i};
    else if(i.needsValuation||marketValue(i)<=0)task={rank:900,label:'Value item',detail:i.title,item:i};
@@ -77,6 +77,26 @@ function salesTable(items){return `<div class="card tablewrap"><p class="muted">
 function table(items){return `<div class="card tablewrap"><table class="table"><thead><tr><th>Item</th><th>Manufacturer</th><th>Condition</th><th>Buy</th><th>Market</th><th>Margin</th><th>HQ</th><th>Lifecycle</th><th>Sales</th></tr></thead><tbody>${items.map(i=>{const e=i.sale?soldEcon(i):expected(i);return `<tr class="click" onclick="openItem(${i.id})"><td><strong>${i.title}</strong><div class="muted">${i.category} · ${i.location}</div>${signalHtml(i)}</td><td>${i.manufacturer||'—'}</td><td>${i.condition}</td><td>${knownMoney(i.buy)}</td><td><strong>${knownMoney(independentMarketValue(i))}</strong>${ebayListedPrice(i)!=null?'<small class="table-note">eBay listed '+money(ebayListedPrice(i))+'</small>':''}${i.valuation?.confidence==='adjusted'?'<small class="table-note">Smart value</small>':''}${RetroCheckout.available(i)?`<button class="btn secondary edit-value" onclick="event.stopPropagation();editItem(${i.id})">Edit value</button>`:''}</td><td>${marginBadge(e.margin)}</td><td>${score(i)}</td><td>${pill(i.status||'Acquired',completionClass(i))}</td><td>${i.sale?.channel||i.listing?.channel||'—'}</td></tr>`}).join('')}</tbody></table></div>`;}
 function stockSystem(i){return RetroOps.stockSystem(i);}
 
+function listedBelowMarket(items){
+ const warnings=[];
+ for(const item of items){
+  if(item.status!=='Listed'||!item.listing||item.valuation?.stale||/^Not in active snapshot/i.test(item.liveSnapshot?.status||''))continue;
+  const market=independentMarketValue(item),ebay=ebayListedPrice(item);
+  const ask=ebay??item.listing.price;
+  if(!Number.isFinite(market)||market<=0||!Number.isFinite(ask)||ask<0)continue;
+  const gap=Math.round(market*100)-Math.round(ask*100);
+  if(gap<=0)continue;
+  warnings.push({item,ask,market,gap,channel:ebay!==null?'eBay':item.listing.channel||'Local listing'});
+ }
+ warnings.sort((a,b)=>b.gap-a.gap||a.item.id-b.item.id);
+ const row=({item,ask,market,gap,channel})=>`<div class="row"><div><strong>${escapeText(item.title)}</strong>
+  <small class="table-note">${escapeText(channel)} ${money(ask)} · HQ ${money(market)}</small></div>
+  <div><strong>${money(gap/100)} below</strong> <button class="btn secondary" onclick="openItem(${item.id})">Review item</button></div></div>`;
+ return `<section class="card" id="belowMarketListings"><div class="head"><h3>Listed below market value</h3>${pill(warnings.length+' to review',warnings.length?'warn':'good')}</div>
+  <p class="muted">Compares saved listing prices with current HQ values. Check the edition, condition and latest market evidence before changing a price.</p>
+  ${warnings.length?warnings.slice(0,5).map(row).join(''):'<p>No underpriced listings found among items with a usable HQ value.</p>'}
+  ${warnings.length>5?'<details><summary>Show '+(warnings.length-5)+' more</summary>'+warnings.slice(5).map(row).join('')+'</details>':''}</section>`;
+}
 function dashboard(){
  const tasks=workflowTasks(),periodSales=state.items.filter(salePeriodMatch),salesValue=periodSales.reduce((a,i)=>a+(i.sale?.price||0),0);
  const stock=state.items.filter(RetroCheckout.available),stockValue=stock.reduce((a,i)=>a+(i.needsValuation?0:marketValue(i)),0),capital=stock.reduce((a,i)=>a+(Number.isFinite(i.buy)?i.buy:0),0);
@@ -84,6 +104,7 @@ function dashboard(){
  const categories={};stock.forEach(i=>categories[i.category]=(categories[i.category]||0)+1);const systemRows=RetroOps.systemStock(state.items);
  return `<div class="hero"><div><small>RetroHQ · Test 8.4</small><h2>HQ Today</h2><p>Your business control panel — buy, stock, process, sell, return and learn.</p></div><button class="btn primary" onclick="buyCheck()">🔎 Acquire / Value Item</button></div>
  <p class="muted">Current inventory · live stock snapshot</p><div class="grid metrics clickable-metrics">${metric('Items in stock',stock.length,'Open inventory →',"go('inventory')")}${metric('Current stock value',money(stockValue),`${needsValue} item(s) still need a value`,"go('inventory')")}${metric('Known capital in stock',money(capital),stock.filter(i=>!Number.isFinite(i.buy)).length+' item(s) have unknown purchase costs')}</div><div class="card dashboard-sales"><div class="head"><h3>Sales performance</h3><span>${reportPeriodLabel()}</span></div>${periodButtons()}<div class="grid metrics clickable-metrics">${metric('Sales value',money(salesValue),reportPeriodLabel(),"go('sales')")}${metric('Items sold',periodSales.length,reportPeriodLabel(),"go('sales')")}</div><p class="muted">Sales figures follow the selected sale-date period. Inventory figures above show current available stock.</p></div>
+ ${listedBelowMarket(stock)}
  <div class="grid two"><div class="card"><div class="head"><h3>What should I do next?</h3>${pill('Live workflow','good')}</div><div class="list">${tasks.slice(0,6).map(t=>`<div class="row"><button onclick="openWorkflowTask(${t.item.id})"><strong>${t.label}</strong><span class="table-note">${escapeText(t.detail)}</span></button>${pill('Priority',t.rank>=850?'warn':'')}</div>`).join('')}${!tasks.length?'<p class="muted">No urgent workflow tasks.</p>':''}</div></div>
  <div class="card stock-health"><div class="head"><h3>Stock health</h3>${pill('Live inventory','good')}</div><div class="stock-mix">${Object.entries(categories).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<span><strong>${v}</strong> ${k}</span>`).join('')||'<span>No active stock</span>'}</div><h4>Games & consoles by platform</h4><p class="muted">Current available units, using each item’s latest saved category. A platform can contain both games and consoles.</p><div class="system-stock">${systemRows.map(x=>`<button onclick="filterSystem('${encodeURIComponent(x.platform).replace(/'/g,'%27')}')"><span>${escapeText(x.platform)}</span><strong>${x.total}</strong><small>${x.games} ${x.games===1?'game':'games'} · ${x.consoles} ${x.consoles===1?'console':'consoles'}</small>${x.total<=3?'<small>Low stock</small>':''}</button>`).join('')||'<p class="muted">Platform information will appear as items are identified.</p>'}</div></div></div>`;
 }
@@ -93,8 +114,8 @@ function inventoryTable(items){
  if(!items.length)return '<div class="card"><p>No available stock. Confirm an import line to add its units, or record an acquisition.</p><button class="btn primary" onclick="go(\'production\')">Open import stock</button></div>';
  return [...groups.values()].map(units=>{if(units.length===1)return table(units);const first=units[0],values=units.filter(i=>!i.needsValuation).map(marketValue),value=values.length===units.length?(Math.min(...values)===Math.max(...values)?money(values[0]):money(Math.min(...values))+' – '+money(Math.max(...values))):'Some values unknown';return '<details class="card"><summary><strong>'+escapeText(first.title)+'</strong> · Quantity '+units.length+' · '+value+' per unit</summary><p>Stock group '+escapeText(first.liveListingId||first.stockSku)+' · SKUs '+escapeText([...new Set(units.map(i=>i.liveSku||'(none)'))].join(', '))+'. Each physical copy keeps its purchase cost, location and history.</p>'+table(units)+'</details>';}).join('');
 }
-function inventory(){return `<div class="toolbar"><button class="btn primary" onclick="go('production')">Import stock</button><button class="btn secondary" onclick="go('sales')">Sales</button><input class="input" id="search" placeholder="Search items" oninput="filterItems()"><select class="select" id="cat" onchange="filterItems()"><option value="">All categories</option><option>Video Game</option><option>Console</option><option>Trading Card</option><option>Toy</option><option>Clothing</option><option>Accessory</option><option>Collectible</option></select><select class="select" id="attention" onchange="filterItems()"><option value="">All workflow states</option><option value="valuation">Needs valuation</option><option value="missing">Missing essentials</option><option value="ready">Ready to list</option></select><button class="btn secondary" onclick="bulkStock()">Organise selected stock</button></div>${state.systemFilter?'<p>Platform: '+escapeText(state.systemFilter)+' <button class="btn secondary" onclick="clearSystemFilter()">Show all platforms</button></p>':''}<div id="results">${inventoryTable(state.items.filter(i=>RetroCheckout.available(i)&&(!state.systemFilter||['Video Game','Console'].includes(i.category)&&stockSystem(i)===state.systemFilter)))}</div>`;}
-function soldInventory(){return `<div class="toolbar"><button class="btn secondary" onclick="go('inventory')">Back to live inventory</button><input class="input" id="search" placeholder="Search sold items" oninput="filterItems()"></div><div id="results">${table(state.items.filter(i=>!RetroCheckout.available(i)))}</div>`;}
+function inventory(){return `<div class="toolbar"><button class="btn primary" onclick="go('production')">Import stock</button><button class="btn secondary" onclick="go('sales')">Sales</button><input class="input" id="search" placeholder="Search items" oninput="filterItems()"><select class="select" id="cat" onchange="filterItems()"><option value="">All categories</option><option>Video Game</option><option>Console</option><option>Trading Card</option><option>Toy</option><option>Clothing</option><option>Accessory</option><option>Collectible</option></select><select class="select" id="attention" onchange="filterItems()"><option value="">All workflow states</option><option value="valuation">Needs valuation</option><option value="missing">Missing essentials</option><option value="ready">Ready to list</option></select><button class="btn secondary" onclick="bulkStock()">Organise selected stock</button>${managerControl()}${managerActive()?'<button class="btn secondary" onclick="removedStock()">Removed stock ('+state.items.filter(i=>i.stockRemoval).length+')</button>':''}</div>${state.systemFilter?'<p>Platform: '+escapeText(state.systemFilter)+' <button class="btn secondary" onclick="clearSystemFilter()">Show all platforms</button></p>':''}<div id="results">${inventoryTable(state.items.filter(i=>RetroCheckout.available(i)&&(!state.systemFilter||['Video Game','Console'].includes(i.category)&&stockSystem(i)===state.systemFilter)))}</div>`;}
+function soldInventory(){return `<div class="toolbar"><button class="btn secondary" onclick="go('inventory')">Back to live inventory</button><input class="input" id="search" placeholder="Search sold items" oninput="filterItems()"></div><div id="results">${table(state.items.filter(RetroItems.sold))}</div>`;}
 function processing(){const items=state.items.filter(i=>RetroCheckout.available(i)&&i.status!=='Listed');return `${operationsPanel()}<div class="hero"><div><h2>Prepare stock</h2><p>Acquired → Preparing → Ready to list. Clean, test, repair, photograph and price as needed.</p></div></div>${['Acquired','Preparing','Ready to list'].map(stage=>`<div class="card"><h3>${stage}</h3>${items.filter(i=>RetroItems.stage(i)===stage).map(i=>`<div class="row"><button onclick="openItem(${i.id},'Processing')"><strong>${escapeText(i.title)}</strong><small>${signalHtml(i)}</small></button><button class="btn secondary" onclick="openItem(${i.id},'Processing')">Open</button></div>`).join('')||'<p class="muted">No items.</p>'}</div>`).join('')}`;}
 function sales(){
  const sold=state.items.filter(i=>i.sale).sort((a,b)=>String(b.sale.date).localeCompare(String(a.sale.date))), filtered=sold.filter(salePeriodMatch);
@@ -161,10 +182,11 @@ function independentMarketValue(item){
 function itemView(){
  const i=state.items.find(x=>x.id===state.activeItem);
  if(!i)return '<div class="card">Item not found.</div>';
+ if(i.stockRemoval)return `<div class="card"><h2>${escapeText(i.title)}</h2><p>Removed from live stock.</p><button class="btn secondary" onclick="go('inventory')">Back to inventory</button></div>`;
  return `<div class="hero"><div><small>${escapeText(i.category)}</small><h2>${escapeText(i.title)}</h2>
  <div class="hero-actions"><button class="btn secondary" onclick="editItem(${i.id})">Edit prices & details</button>
  <button class="btn secondary" onclick="identifyExistingItem(${i.id})">${i.needsIdentification?'Identify this item':'Review item identity'}</button>
- <button class="btn primary" onclick="checkItemMarket(${i.id})">Check market value</button></div>
+ <button class="btn primary" onclick="checkItemMarket(${i.id})">Check market value</button>${managerActive()&&RetroCheckout.available(i)?'<button class="btn secondary" onclick="stockRemovalDialog('+i.id+',true)">Remove from stock</button>':''}</div>
  <p>${escapeText(i.condition)} · ${escapeText(i.location)} · ${escapeText(i.status)}</p>${signalHtml(i)}</div>
  <div><div>HQ UK market value <strong>${knownMoney(independentMarketValue(i))}</strong></div>
  <div>eBay listed price <strong>${knownMoney(ebayListedPrice(i))}</strong></div>
@@ -523,7 +545,7 @@ window.testSellerConnection=async()=>{
 };
 
 window.openItem=(id,tab='Overview')=>{state.activeItem=id;state.activeTab=tab;go('item');};window.setTab=t=>{state.activeTab=t;render();};
-window.filterItems=()=>{const q=($('#search')?.value||'').toLowerCase(),cat=$('#cat')?.value||'',attention=$('#attention')?.value||'';const items=state.items.filter(i=>(state.view==='soldInventory'?!RetroCheckout.available(i):RetroCheckout.available(i))&&(!state.systemFilter||['Video Game','Console'].includes(i.category)&&stockSystem(i)===state.systemFilter)&&(!cat||i.category===cat)&&(`${i.title} ${i.manufacturer} ${i.status} ${i.location} ${stockSystem(i)||''}`.toLowerCase().includes(q))&&(!attention||(attention==='valuation'&&(i.needsValuation||marketValue(i)<=0))||(attention==='missing'&&missingEssentials(i).length)||(attention==='ready'&&i.status==='Ready to list')||(attention==='sold'&&!!i.sale)));$('#results').innerHTML=(state.view==='inventory'?inventoryTable(items):table(items));};
+window.filterItems=()=>{const q=($('#search')?.value||'').toLowerCase(),cat=$('#cat')?.value||'',attention=$('#attention')?.value||'';const items=state.items.filter(i=>(state.view==='soldInventory'?RetroItems.sold(i):RetroCheckout.available(i))&&(!state.systemFilter||['Video Game','Console'].includes(i.category)&&stockSystem(i)===state.systemFilter)&&(!cat||i.category===cat)&&(`${i.title} ${i.manufacturer} ${i.status} ${i.location} ${stockSystem(i)||''}`.toLowerCase().includes(q))&&(!attention||(attention==='valuation'&&(i.needsValuation||marketValue(i)<=0))||(attention==='missing'&&missingEssentials(i).length)||(attention==='ready'&&i.status==='Ready to list')||(attention==='sold'&&!!i.sale)));$('#results').innerHTML=(state.view==='inventory'?inventoryTable(items):table(items));};
 window.filterSystem=name=>{state.systemFilter=decodeURIComponent(name);go('inventory');};window.clearSystemFilter=()=>{delete state.systemFilter;render();};
 window.refreshProviderStatus=async()=>{const box=$('#marketProviderStatus');if(!box)return;try{const r=await fetch('/api/provider-status'),d=await r.json();box.innerHTML=[pill('CeX '+(d.cexStatus||'Not tested'),d.cex?'good':'warn'),pill('PriceCharting '+(d.pricecharting?'configured':'token missing'),d.pricecharting?'good':'warn'),pill('eBay UK '+(d.ebayEnvironment==='sandbox'?'Sandbox only':d.ebay?'configured':'credentials missing'),d.ebay&&d.ebayEnvironment!=='sandbox'?'good':'warn')].join(' ');}catch(e){box.innerHTML=pill('Provider status unavailable','warn');}};
 window.runMarketInsight=async()=>{const q=($('#marketQuery')?.value||'').trim(),box=$('#marketLiveResult');if(!q||!box)return;box.innerHTML='<p class="muted">Searching live providers…</p>';try{const r=await fetch('/api/market-search?'+new URLSearchParams({q,cexGrade:'Unboxed'})),d=await r.json();if(d.needsConfirmation){box.innerHTML='<div class="notice"><strong>More than one PriceCharting match.</strong><p class="muted">Use Acquire / Value Item for exact identity confirmation. HQ Market is showing provider coverage rather than guessing.</p></div>';return;}const evidence=d.evidence||[];box.innerHTML=`<div class="market-result-head"><strong>${d.lockedIdentity?.label||q}</strong><span>${d.marketValue!=null?'Current RetroHQ UK benchmark '+money(d.marketValue):'No single UK value promoted'}</span></div><div class="evidence-panel">${evidence.map(x=>{if(x.provider==='eBay UK'&&x.status==='Live')return `<div class="evidence-row"><span>eBay UK active listings</span><strong>${x.medianAsking!=null?'Median asking '+money(x.medianAsking):x.status}</strong><small>${x.detail||''} Active listings are not treated as sold evidence.</small></div>`;if(x.provider==='PriceCharting'&&x.status==='Live')return `<div class="evidence-row"><span>PriceCharting</span><strong>LIVE</strong><small>${x.detail||''}</small></div>`;if(x.provider==='CeX UK'&&x.status==='Live')return `<div class="evidence-row"><span>CeX UK</span><strong>${x.retail!=null?'Retail '+money(x.retail):'LIVE'}</strong><small>${x.detail||''}</small></div>`;return `<div class="evidence-row"><span>${x.provider}</span><strong>${x.status||'Unavailable'}</strong><small>${x.detail||''}</small></div>`;}).join('')}</div>`;}catch(e){box.innerHTML=`<div class="provider-warning">${e.message}</div>`;}};
@@ -907,6 +929,46 @@ window.managerSignOut=()=>{
  managerSession=null;
  if(session)managerRequest({action:'logout',token:session.token}).catch(()=>{});
  render();
+};
+window.removedStock=()=>{
+ if(!managerActive()){managerLogin();return;}
+ const rows=state.items.filter(item=>item.stockRemoval).sort((a,b)=>b.stockRemoval.date.localeCompare(a.stockRemoval.date));
+ open('<h2>Removed stock</h2><p>Restore a physical item to the inventory when it is available again.</p>'
+  +(rows.length?rows.map(item=>`<div class="row"><div><strong>${escapeText(item.title)}</strong><small class="table-note">Stock #${item.id} · ${escapeText(item.stockRemoval.date.slice(0,10))} · ${escapeText(item.stockRemoval.reason)}</small></div><button class="btn secondary" onclick="stockRemovalDialog(${item.id},false)">Restore</button></div>`).join(''):'<p>No removed items.</p>')
+  +'<div class="modal-actions"><button class="btn secondary" onclick="closeModal()">Close</button></div>');
+};
+window.stockRemovalDialog=(id,remove)=>{
+ if(!managerActive()){managerLogin();return;}
+ const item=state.items.find(i=>i.id===id);
+ if(!item||(remove?!RetroCheckout.available(item):!item.stockRemoval))return;
+ const title=remove?'Remove from stock':'Restore to stock';
+ const effect=remove?'This removes this physical copy from Inventory and checkout. You can restore it from Removed stock.':'This makes the item available in RetroHQ again.';
+ const ebay=item.liveListingId?(remove?' The eBay listing stays live. RetroHQ pauses new imports for this listing variation while the item is removed.':' Restoring the item re-enables normal listing imports if no other copies remain removed.'):'';
+ open(`<h2>${title}</h2><p><strong>${escapeText(item.title)}</strong> · Stock #${id}</p><p>${effect}${ebay}</p>
+ <form id="stockRemovalForm"><label>Reason<input name="reason" class="input" maxlength="240" required></label><p id="stockRemovalError" role="alert"></p>
+ <div class="modal-actions"><button class="btn secondary" type="button" onclick="${remove?'closeModal()':'removedStock()'}">Cancel</button><button class="btn primary" type="submit">${title}</button></div></form>`);
+ const form=$('#stockRemovalForm');
+ form.onsubmit=async event=>{
+  event.preventDefault();
+  const button=form.querySelector('button[type=submit]');
+  if(button.disabled)return;
+  button.disabled=true;
+  try{
+   if(!managerActive())throw Error('Manager session expired. Sign in again from Inventory.');
+   const session=managerSession;
+   const reason=new FormData(form).get('reason');
+   const next=RetroItems.changeStockRemoval(item,remove,reason,new Date().toISOString());
+   await managerRequest({action:'authorise',token:session.token});
+   if(!form.isConnected||session!==managerSession)return;
+   const index=state.items.indexOf(item);
+   if(index<0)throw Error('Stock changed. Reopen this item before trying again.');
+   state.items[index]=next;
+   if(!persistState()){state.items[index]=item;throw Error('The change could not be saved.');}
+   closeModal();go('inventory');
+   if(!remove)removedStock();
+  }catch(error){if(form.isConnected)$('#stockRemovalError').textContent=error.message;}
+  finally{button.disabled=false;}
+ };
 };
 function tradeText(value,max){
  const text=String(value??'').trim();

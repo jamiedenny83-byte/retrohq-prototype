@@ -16,7 +16,8 @@ function check(state){
 function rows(state){
  const r=state.liveEbay?.stockReview;if(!r)return [];
  const result=[];
- for(const l of r.snapshot.listings){const units=linked(state,l);if((r.initial&&units.length===0&&l.quantity!==0)||state.liveEbay.stockDeferredListings?.includes(pair(l))||l.quantity!==null&&l.quantity>units.length)result.push({kind:'listing',key:pair(l),record:l,linkedIds:units.map(i=>i.id),needed:l.quantity===null?null:Math.max(0,l.quantity-units.length),soldElsewhere:state.items.filter(i=>i.sale&&i.liveListingId===l.listingId&&(i.liveSku||'')===l.sku&&!['eBay','eBay Live'].includes(i.sale.channel)).length});}
+ const removedLinks=new Set(state.items.filter(i=>i.stockRemoval&&i.liveListingId).map(i=>pair({listingId:i.liveListingId,sku:i.liveSku})));
+ for(const l of r.snapshot.listings){if(removedLinks.has(pair(l)))continue;const units=linked(state,l);if((r.initial&&units.length===0&&l.quantity!==0)||state.liveEbay.stockDeferredListings?.includes(pair(l))||l.quantity!==null&&l.quantity>units.length)result.push({kind:'listing',key:pair(l),record:l,linkedIds:units.map(i=>i.id),needed:l.quantity===null?null:Math.max(0,l.quantity-units.length),soldElsewhere:state.items.filter(i=>i.sale&&i.liveListingId===l.listingId&&(i.liveSku||'')===l.sku&&!['eBay','eBay Live'].includes(i.sale.channel)).length});}
  for(const l of r.snapshot.orders)if(L.valid(l)&&/^\d+$/.test(l.listingId)&&!state.liveEbay.ledger.some(x=>x.key===L.key(l)))result.push({kind:'order',key:L.key(l),record:l,linkedIds:[],needed:l.quantity});
  return result.map(x=>({...x,choice:r.choices.find(c=>c.kind===x.kind&&c.key===x.key)||null}));
 }
