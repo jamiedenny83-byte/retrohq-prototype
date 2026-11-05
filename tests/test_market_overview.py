@@ -13,6 +13,29 @@ class Reply:
 
 class OverviewTests(unittest.TestCase):
     def setUp(self):M._cache.clear();self.auth=Mock(return_value={'ok':True,'token':'private-token','environment':'production'})
+    def test_identity_barcode_uses_ebay_gtin_parameter(self):
+        from http.server import ThreadingHTTPServer
+        from urllib.parse import parse_qs, urlparse
+        from urllib.request import urlopen
+        import threading
+
+        http=ThreadingHTTPServer(('127.0.0.1',0),server.H)
+        worker=threading.Thread(target=http.serve_forever,daemon=True);worker.start()
+        url=f'http://127.0.0.1:{http.server_port}/api/identity-search?barcode='
+        self.auth.return_value['base']='https://api.ebay.com'
+        try:
+            with patch.object(server,'ebay_access_token',self.auth),patch.object(server,'urlopen',return_value=Reply({'total':0,'itemSummaries':[]})) as upstream:
+                with urlopen(url+'5030917096846&q=ignored') as response:
+                    self.assertEqual(json.load(response)['returned'],0)
+                params=parse_qs(urlparse(upstream.call_args.args[0].full_url).query)
+                self.assertEqual(params['gtin'],['5030917096846'])
+                self.assertNotIn('q',params)
+                with self.assertRaises(HTTPError) as error:
+                    urlopen(url+'5030917096847')
+                self.assertEqual(error.exception.code,400)
+                upstream.assert_called_once()
+        finally:
+            http.shutdown();worker.join();http.server_close()
     def test_base_and_marketing_application_tokens_have_separate_cache_entries(self):
         import os
         server._ebay_token_cache.clear();server._ebay_marketing_token_cache.clear()

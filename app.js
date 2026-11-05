@@ -275,33 +275,164 @@ window.editEbayLink=id=>{
 };
 window.saveEbayLink=id=>{const i=state.items.find(x=>x.id===id);i.ebaySku=$('#ebaySku').value.trim();i.ebayListingId=$('#ebayListing').value.trim();closeModal();render();};
 let existingIdentityDraft=null;
+function existingIdentitySource(item,query){
+ const category=item.category||'';
+ if(/toys?/i.test(category)||/^(?:Clothing|Trading Card|Collectible)$/i.test(category))return 'ebay';
+ if(/video.?games?|console/i.test(category)||['hardware','software'].includes(item.identity?.type))return 'catalogue';
+ return RetroOps.stockSystem({title:query})?'catalogue':'ebay';
+}
 window.identifyExistingItem=id=>{
- const i=state.items.find(i=>i.id===id);if(!i)return;const gaming=/video.?games?|console/i.test(i.category||'')&&!/toys?/i.test(i.category||'');
+ const item=state.items.find(i=>i.id===id);
+ if(!item)return;
+ const source=existingIdentitySource(item,item.title);
  existingIdentityDraft={id,generation:0,catalogue:null,ebayReference:null};
- open('<h2>Identify existing item</h2><p>Search the product, check the model and manufacturer against your physical item, then confirm. This updates the same stock record and keeps its costs, valuation, sale and listing.</p><div class="toolbar"><label>Item search<input id="existingIdentityQuery" class="input" oninput="clearExistingIdentitySelection()" value="'+escapeText(i.title)+'"></label><label>Search source<select id="existingIdentityProvider" class="select" onchange="clearExistingIdentitySelection()"><option value="ebay" '+(!gaming?'selected':'')+'>eBay UK · toys and other items</option><option value="catalogue" '+(gaming?'selected':'')+'>PriceCharting · games catalogue</option></select></label><button class="btn secondary" onclick="searchExistingIdentity()">Find item matches</button></div><div id="existingIdentityMatches" role="status"></div><p>eBay listings are suggestions to compare, not proof of identity or sold value. You can also check and confirm details manually.</p><div class="formgrid">'+[['title','Product title',i.title],['platform','Platform / model',i.platform||i.identity?.platform||''],['region','Region / edition',i.region||''],['category','Category',/toys?/i.test(i.category||'')?'Toy':i.category],['manufacturer','Manufacturer',i.manufacturer||''],['barcode','Barcode / EAN',i.barcode||'']].map(([k,label,value])=>'<label>'+label+'<input class="input" id="identity-'+k+'" value="'+escapeText(value)+'" oninput="clearExistingIdentitySelection()"></label>').join('')+'</div><label><input id="existingIdentityConfirmed" type="checkbox"> I checked the physical product, model, edition and included contents.</label><p id="existingIdentityError" role="alert"></p><div class="modal-actions"><button class="btn secondary" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="saveExistingIdentity()">Confirm identity</button><button class="btn secondary" onclick="saveExistingIdentity(true)">Confirm &amp; check value</button></div>');
+ const fields=[['title','Product title',item.title],['platform','Platform / model',item.platform||item.identity?.platform||''],
+  ['category','Category',/toys?/i.test(item.category||'')?'Toy':item.category],['region','Region / edition',item.region||''],
+  ['manufacturer','Manufacturer',item.manufacturer||''],['barcode','Barcode / EAN',item.barcode||'']];
+ const input=([key,label,value])=>`<label for="identity-${key}">${label}<input id="identity-${key}" class="input" value="${escapeText(value)}"></label>`;
+ const included=[['box','Box'],['controller','Controller'],['cables','Cables']].filter(([key])=>item.accessories?.[key]).map(([,label])=>label);
+ open(`<section class="identity-workflow"><h2>Identify existing item</h2>
+  <form id="identitySearchForm">
+   <label class="identity-label" for="existingIdentityQuery">What is the item?</label>
+   <div class="counter-search-row"><input id="existingIdentityQuery" class="input counter-input" value="${escapeText(item.title)}" placeholder="Title, model or barcode"><button class="btn primary" type="submit">Search</button></div>
+   <p class="muted identity-help">Search by title or model, or enter a barcode.</p>
+  </form>
+  <div class="scan-actions">${demoMode?'':'<button class="btn secondary" onclick="photoIdentify()">Photo search</button><button class="btn secondary" onclick="scanBarcode()">Scan barcode</button>'}
+   <details class="identity-source"><summary id="identitySourceLabel">${source==='catalogue'?'Games catalogue':'eBay UK'}</summary>
+    <label for="existingIdentityProvider">Search source</label><select id="existingIdentityProvider" class="select">
+     <option value="catalogue" ${source==='catalogue'?'selected':''}>PriceCharting games catalogue</option>
+     <option value="ebay" ${source==='ebay'?'selected':''}>eBay UK listings</option>
+    </select>
+   </details>
+  </div>
+  <div id="identityCaptureTools"></div>
+  <div id="existingIdentityMatches" role="status" aria-live="polite"></div>
+  <section class="identity-review"><h3>Check the item details</h3>
+   <p class="muted identity-help">${escapeText(item.condition||'Condition unknown')}${included.length?' · Includes '+included.join(', '):''}</p>
+   <div class="formgrid">${fields.slice(0,2).map(input).join('')}</div>
+   <details id="identityMoreFields"><summary>Category, edition, manufacturer and barcode</summary>
+    <div class="formgrid">${fields.slice(2).map(input).join('')}</div>
+   </details>
+   <label class="identity-confirm"><input id="existingIdentityConfirmed" type="checkbox"> I checked the physical item and its edition and contents.</label>
+  </section>
+  <div class="modal-actions identity-actions"><p id="existingIdentityError" role="alert"></p><button class="btn secondary" onclick="closeModal()">Cancel</button><button class="btn secondary" onclick="saveExistingIdentity()">Save identity</button><button class="btn primary" onclick="saveExistingIdentity(true)">Save &amp; check value</button></div>
+ </section>`);
+ $('#identitySearchForm').onsubmit=event=>{event.preventDefault();searchExistingIdentity();};
+ $('#existingIdentityQuery').oninput=()=>clearExistingIdentitySelection(true);
+ $('#existingIdentityProvider').onchange=()=>{
+  $('#identitySourceLabel').textContent=$('#existingIdentityProvider').value==='catalogue'?'Games catalogue':'eBay UK';
+  clearExistingIdentitySelection(true);
+ };
+ for(const [key] of fields)$('#identity-'+key).oninput=()=>clearExistingIdentitySelection();
+ modal.scrollTop=0;
 };
-window.clearExistingIdentitySelection=()=>{if(existingIdentityDraft){existingIdentityDraft.catalogue=null;existingIdentityDraft.ebayReference=null;existingIdentityDraft.generation++;}if($('#existingIdentityConfirmed'))$('#existingIdentityConfirmed').checked=false;};
-window.searchExistingIdentity=async(id)=>{
- const draft=existingIdentityDraft,box=$('#existingIdentityMatches');if(!draft||!box)return;
- const query=$('#existingIdentityQuery').value.trim();if(!query)return;const generation=++draft.generation,provider=$('#existingIdentityProvider').value;draft.catalogue=null;draft.ebayReference=null;draft.candidates=[];$('#existingIdentityConfirmed').checked=false;box.textContent=provider==='ebay'?'Searching eBay UK identification suggestions…':'Looking for catalogue matches…';
- try{const params=new URLSearchParams({q:query});if(id)params.set('id',id);const response=await fetch((provider==='ebay'?'/api/identity-search?':'/api/market-search?')+params,{cache:'no-store'}),data=await response.json();if(!response.ok||data.ok===false)throw Error((data.status||'Item lookup unavailable.')+' '+(data.detail||''));if(existingIdentityDraft!==draft||draft.generation!==generation||!document.contains(box))return;
-  if(provider==='ebay'){draft.ebayCandidates=data.candidates||[];const returned=Number.isInteger(data.returned)?data.returned:draft.ebayCandidates.length, hidden=(data.filtered?.ids||0)+(data.filtered?.links||0);box.innerHTML='<p>eBay UK suggestions · verify model, size, accessories and condition. Asking prices are not valuations.</p><p>'+returned+' listings returned · '+draft.ebayCandidates.length+' displayed'+(hidden?' · '+hidden+' excluded because their listing identity or link could not be verified':'')+'.</p>'+(data.broadened?'<p>No results for the original search. Showing a broader search for <strong>'+escapeText(data.searchedQuery)+'</strong>. Check the model carefully.</p>':'')+draft.ebayCandidates.map((x,n)=>'<div class="row"><div><strong>'+escapeText(x.title)+'</strong><small class="table-note">'+escapeText(x.condition)+(x.asking!=null?' · asking '+money(x.asking):'')+'</small></div><button class="btn secondary" onclick="selectExistingEbayCandidate('+n+')">Compare this item</button></div>').join('')+(draft.ebayCandidates.length?'':(returned?'<p>eBay returned listings, but their links or identities could not be verified. Try again later or confirm manually.</p>':'<p>eBay returned no live UK listings for this search. Try another product/model name, or confirm manually.</p>'));return;}
-  if(data.needsConfirmation){draft.candidates=(data.candidates||[]).filter(x=>/^\d+$/.test(String(x.id)));box.innerHTML=draft.candidates.map((x,n)=>'<button class="btn secondary" onclick="selectExistingIdentityCandidate('+n+')">'+escapeText(x['product-name'])+' · '+escapeText(x['console-name'])+'</button>').join('')||'No exact catalogue match. You can confirm details manually.';return;}
-  const found=data.lockedIdentity;if(!found?.confirmedProduct){box.textContent='No confirmed catalogue match. Try eBay UK for toys/other items, refine the search, or confirm manually.';return;}
-  const pc=String(data.pricechartingProductId||found.pricechartingProductId||id||'');draft.catalogue=/^\d+$/.test(pc)?{id:pc,title:found.confirmedProduct,platform:found.platform||''}:null;
-  $('#identity-title').value=found.confirmedProduct;$('#identity-platform').value=found.platform||'';if(found.type==='software')$('#identity-category').value='Video Game';else if(found.type==='hardware')$('#identity-category').value='Console';$('#existingIdentityConfirmed').checked=false;box.textContent='Catalogue details selected. Check the physical item, then confirm below.';
- }catch(error){if(existingIdentityDraft===draft&&draft.generation===generation&&document.contains(box))box.textContent=error.message+' You can still confirm details manually.';}
+function clearExistingIdentitySelection(clearResults=false){
+ const draft=existingIdentityDraft;
+ if(!draft)return;
+ const selected=draft.catalogue||draft.ebayReference||draft.pending;
+ draft.catalogue=null;
+ draft.ebayReference=null;
+ draft.generation++;
+ draft.pending=false;
+ $('#existingIdentityConfirmed').checked=false;
+ $('#existingIdentityError').textContent='';
+ if(clearResults){
+  draft.candidates=[];
+  draft.ebayCandidates=[];
+  $('#existingIdentityMatches').textContent='';
+ }else if(selected){
+  $('#existingIdentityMatches').textContent='Details edited. Check them against the physical item before saving.';
+ }
+}
+function identityMatchList(rows,kind){
+ if(!rows.length)return '';
+ const ebay=kind==='ebay',click=ebay?'selectExistingEbayCandidate':'selectExistingIdentityCandidate';
+ const cards=rows.map((row,index)=>{
+  const title=ebay?row.title:row['product-name'];
+  const details=ebay?[row.condition,row.asking==null?'':money(row.asking)+' asking'].filter(Boolean).join(' · '):row['console-name'];
+  return `<article class="identity-match"><div><strong>${escapeText(title)}</strong><small class="muted">${escapeText(details)}</small></div><button class="btn secondary" onclick="${click}(${index})">Use match</button></article>`;
+ });
+ return '<div class="identity-match-list">'+cards.slice(0,3).join('')+
+  (cards.length>3?'<details><summary>Show '+(cards.length-3)+' more matches</summary>'+cards.slice(3).join('')+'</details>':'')+'</div>';
+}
+window.searchExistingIdentity=async id=>{
+ const draft=existingIdentityDraft,box=$('#existingIdentityMatches');
+ if(!draft||!box)return;
+ const query=$('#existingIdentityQuery').value.trim(),provider=$('#existingIdentityProvider').value;
+ let barcode='';
+ if(/^[0-9 -]{8,}$/.test(query)){
+  try{barcode=RetroCapture.barcode(query);}catch(error){box.textContent=error.message;return;}
+ }else if(query.length<2){
+  box.textContent='Enter an item name or scan its barcode.';return;
+ }
+ const generation=++draft.generation;
+ const current=()=>draft===existingIdentityDraft&&draft.generation===generation&&box.isConnected;
+ draft.catalogue=null;draft.ebayReference=null;draft.pending=true;
+ $('#existingIdentityConfirmed').checked=false;
+ $('#existingIdentityError').textContent='';
+ box.textContent=provider==='ebay'?'Searching eBay UK listings…':'Searching the games catalogue…';
+ try{
+  const params=new URLSearchParams();
+  if(barcode){
+   params.set('barcode',barcode);
+   $('#identity-barcode').value=barcode;
+  }else params.set('q',query);
+  if(id)params.set('id',id);
+  const response=await fetch((provider==='ebay'?'/api/identity-search?':'/api/market-search?')+params,{cache:'no-store'});
+  const data=await response.json();
+  if(!current())return;
+  if(!response.ok||data.ok===false)throw Error((data.status||'Item lookup unavailable.')+' '+(data.detail||''));
+  if(provider==='ebay'){
+   draft.ebayCandidates=data.candidates||[];
+   const count=draft.ebayCandidates.length,returned=Number.isInteger(data.returned)?data.returned:count;
+   const summary=count?count+' active eBay listings'+(returned>count?' shown from '+returned+' returned':'')+'. Compare edition and condition.':returned?'eBay returned listings without usable references.':'No active UK listings found.';
+   box.innerHTML='<h3>Choose a match</h3><p class="muted">'+summary+'</p>'
+    +(data.broadened?'<p class="muted">Broader search: '+escapeText(data.searchedQuery)+'</p>':'')
+    +identityMatchList(draft.ebayCandidates,'ebay');
+   return;
+  }
+  if(data.needsConfirmation){
+   draft.candidates=(data.candidates||[]).filter(x=>/^\d+$/.test(String(x.id)));
+   box.innerHTML=draft.candidates.length?'<h3>Choose a match</h3>'+identityMatchList(draft.candidates,'catalogue'):'No exact catalogue match. You can confirm details manually.';
+   return;
+  }
+  const found=data.lockedIdentity;
+  if(!found?.confirmedProduct){
+   box.textContent='No confirmed catalogue match. Refine the search or switch the search source to eBay UK.';
+   return;
+  }
+  const pc=String(data.pricechartingProductId||found.pricechartingProductId||id||'');
+  draft.catalogue=/^\d+$/.test(pc)?{id:pc,title:found.confirmedProduct,platform:found.platform||''}:null;
+  $('#identity-title').value=found.confirmedProduct;
+  $('#identity-platform').value=found.platform||'';
+  if(found.type==='software')$('#identity-category').value='Video Game';
+  else if(found.type==='hardware')$('#identity-category').value='Console';
+  box.innerHTML='<div class="notice"><strong>'+escapeText(found.confirmedProduct)+'</strong><p class="identity-help">'+escapeText(found.platform||'')+' · Check the details below.</p></div>';
+ }catch(error){if(current())box.textContent=error.message+' You can still confirm details manually.';}
+ finally{if(current())draft.pending=false;}
 };
 window.selectExistingEbayCandidate=async n=>{
- const draft=existingIdentityDraft,candidate=draft?.ebayCandidates?.[n],box=$('#existingIdentityMatches');if(!candidate||!box)return;const generation=++draft.generation;draft.catalogue=null;draft.ebayReference=null;$('#existingIdentityConfirmed').checked=false;box.textContent='Reading the listing model and manufacturer…';
- try{const r=await fetch('/api/identity-detail?'+new URLSearchParams({item:candidate.id}),{cache:'no-store'}),d=await r.json();if(!r.ok||!d.ok)throw Error(d.status||'Listing details unavailable.');if(d.itemId!==candidate.id||!/^https:\/\/(?:www\.)?ebay\.co\.uk\/itm\/[a-zA-Z0-9/?&=._%+|\-]+$/.test(d.url||''))throw Error('Invalid listing reference.');if(draft!==existingIdentityDraft||draft.generation!==generation||!document.contains(box))return;
-  for(const k of ['title','platform','manufacturer','barcode'])$('#identity-'+k).value=d[k]||'';draft.ebayReference={itemId:d.itemId,title:d.title,platform:d.platform||'',manufacturer:d.manufacturer||'',barcode:d.barcode||'',url:d.url,checkedAt:d.checkedAt};
-  const source=document.createElement('a');source.href=d.url;source.target='_blank';source.rel='noopener noreferrer';source.className='btn secondary';source.textContent='View the source listing';box.textContent='eBay details selected as a reference. Compare the physical model and accessories, then confirm below. Costs, valuation and your existing listing link will be retained. ';box.append(source);
- }catch(ex){if(draft===existingIdentityDraft&&draft.generation===generation&&document.contains(box))box.textContent=ex.message+' Refine the search or confirm manually.';}
+ const draft=existingIdentityDraft,candidate=draft?.ebayCandidates?.[n],box=$('#existingIdentityMatches');
+ if(!candidate||!box)return;
+ const generation=++draft.generation;
+ const current=()=>draft===existingIdentityDraft&&draft.generation===generation&&box.isConnected;
+ draft.catalogue=null;draft.ebayReference=null;draft.pending=true;
+ $('#existingIdentityConfirmed').checked=false;
+ box.textContent='Reading listing details…';
+ try{
+  const response=await fetch('/api/identity-detail?'+new URLSearchParams({item:candidate.id}),{cache:'no-store'}),data=await response.json();
+  if(!current())return;
+  if(!response.ok||!data.ok)throw Error(data.status||'Listing details unavailable.');
+  if(data.itemId!==candidate.id||!RetroOverview.safeUrl(data.url))throw Error('Invalid listing reference.');
+  for(const key of ['title','platform','manufacturer','barcode'])if(data[key])$('#identity-'+key).value=data[key];
+  draft.ebayReference={itemId:data.itemId,title:data.title,platform:data.platform||'',manufacturer:data.manufacturer||'',barcode:data.barcode||'',url:data.url,checkedAt:data.checkedAt};
+  box.innerHTML='<div class="notice"><strong>eBay reference selected</strong><p class="identity-help">Check the details below. <a href="'+escapeText(data.url)+'" target="_blank" rel="noopener noreferrer">View source listing</a></p></div>';
+ }catch(error){if(current())box.textContent=error.message+' Search again or confirm manually.';}
+ finally{if(current())draft.pending=false;}
 };
-window.selectExistingIdentityCandidate=n=>{const x=existingIdentityDraft?.candidates?.[n];if(x)searchExistingIdentity(String(x.id));};
+window.selectExistingIdentityCandidate=n=>{const row=existingIdentityDraft?.candidates?.[n];if(row)searchExistingIdentity(String(row.id));};
 window.saveExistingIdentity=(checkValue=false)=>{
- try{const draft=existingIdentityDraft;if(!draft||!$('#existingIdentityConfirmed'))return;const index=state.items.findIndex(i=>i.id===draft.id);if(index<0)throw Error('Item no longer exists.');const input={confirmed:$('#existingIdentityConfirmed').checked,catalogue:draft.catalogue,ebayReference:draft.ebayReference};for(const k of ['title','platform','region','category','manufacturer','barcode'])input[k]=$('#identity-'+k).value;
+ try{const draft=existingIdentityDraft;if(!draft||!$('#existingIdentityConfirmed'))return;if(draft.pending)throw Error('Wait for the current search to finish.');const index=state.items.findIndex(i=>i.id===draft.id);if(index<0)throw Error('Item no longer exists.');const input={confirmed:$('#existingIdentityConfirmed').checked,catalogue:draft.catalogue,ebayReference:draft.ebayReference};for(const k of ['title','platform','region','category','manufacturer','barcode'])input[k]=$('#identity-'+k).value;
   const before=state.items[index],next=RetroItems.identify(before,input,new Date().toISOString());state.items[index]=next;if(!persistState()){state.items[index]=before;return;}existingIdentityDraft=null;closeModal();render();if(checkValue)checkItemMarket(next.id);
  }catch(error){const box=$('#existingIdentityError');if(box)box.textContent=error.message;}
 };
@@ -551,7 +682,10 @@ window.removeAcquisitionPhoto=()=>{acquisitionPhoto=null;renderAcquisitionPhoto(
 function buyingSnapshotHtml(i){const e=i.buyingEstimate;if(!e)return '';return '<div class="card"><h3>Buying decision at acquisition</h3><p>'+(e.ready?'Estimated sale '+money(e.price)+' · estimated costs '+money(e.total)+' · estimated profit '+(e.profit===null?'unknown':money(e.profit)):'Costs or selling estimate were incomplete when acquired.')+'</p><small>Historical estimate, not actual sale profit.</small></div>';}
 
 function defaultGameBox(prefix,identity){const box=$('#'+prefix+'Box');if(identity?.type==='software'&&box&&!box.dataset.userSet){box.checked=true;box.dataset.userSet='default';}}
-window.scanBarcode=()=>{if(demoMode)return alert('Return to your saved workspace for live barcode search.');$('#photoIdentifyPanel')?.remove();photoGeneration++;RetroCapture.scan(modal,code=>{const quick=!!$('#qBarcode');$(quick?'#qBarcode':'#bcBarcode').value=code;$(quick?'#qDesc':'#bcDesc').value='';acquisitionPhoto=null;photoSearchNote='';if(quick){$('#qTitle').value='';window.quickCaptureLookupState={requestId:0};findCandidates();}else autoMarketSearch();});};
+window.scanBarcode=()=>{if(demoMode)return alert('Return to your saved workspace for live barcode search.');$('#photoIdentifyPanel')?.remove();photoGeneration++;const target=$('#identityCaptureTools')||modal;RetroCapture.scan(target,code=>{
+ const identityQuery=$('#existingIdentityQuery');
+ if(identityQuery){clearExistingIdentitySelection(true);identityQuery.value=code;searchExistingIdentity();return;}
+ const quick=!!$('#qBarcode');$(quick?'#qBarcode':'#bcBarcode').value=code;$(quick?'#qDesc':'#bcDesc').value='';acquisitionPhoto=null;photoSearchNote='';if(quick){$('#qTitle').value='';window.quickCaptureLookupState={requestId:0};findCandidates();}else autoMarketSearch();});};
 let photoSearchNote='';
 window.editPhotoDescription=()=>{const el=$('#qDesc')||$('#bcDesc');el?.focus();el?.select();};
 let selectedPhoto=null,photoBusy=false,photoGeneration=0;
@@ -563,7 +697,9 @@ window.photoIdentify=()=>{
  $('#photoIdentifyPanel')?.remove();const panel=document.createElement('section');panel.id='photoIdentifyPanel';panel.className='card';
  panel.innerHTML='<h3>Photo search</h3><p id="photoSetup" class="muted">Take or choose one item photo. Identification starts automatically.</p><input id="identifyPhotoFile" hidden type="file" accept="image/jpeg,image/png,image/webp" capture="environment" onchange="prepareIdentifyPhoto(this.files[0])"><button id="choosePhotoButton" class="btn secondary" onclick="document.querySelector(\'#identifyPhotoFile\').click()">Take / choose another photo</button><img id="identifyPreview" alt="Selected item photo" hidden style="max-width:100%;max-height:220px"><small class="muted">Your chosen photo is sent to OpenAI automatically. API charges apply. A compressed reference photo is kept locally if you save the item.</small><button id="identifyPhotoButton" hidden class="btn secondary" onclick="identifySelectedPhoto()">Retry photo search</button><div id="photoResult" role="status" aria-live="polite"></div>';
 
- modal.prepend(panel);panel.querySelector('#identifyPhotoFile').click();fetch('/api/photo-status').then(r=>r.json()).then(d=>{if(panel.isConnected)panel.querySelector('#photoSetup').textContent=d.configured?'Photo service configured.':'Setup needed: add OPENAI_API_KEY to Codespaces secrets, then restart the server.';}).catch(()=>{if(panel.isConnected)panel.querySelector('#photoSetup').textContent='Photo service status unavailable.';});
+ const identityTools=$('#identityCaptureTools');
+ if(identityTools)panel.querySelector('small.muted').textContent='Your chosen photo is sent to OpenAI for identification. API charges apply.';
+ (identityTools||modal).prepend(panel);panel.querySelector('#identifyPhotoFile').click();fetch('/api/photo-status').then(r=>r.json()).then(d=>{if(panel.isConnected)panel.querySelector('#photoSetup').textContent=d.configured?'Photo service configured.':'Setup needed: add OPENAI_API_KEY to Codespaces secrets, then restart the server.';}).catch(()=>{if(panel.isConnected)panel.querySelector('#photoSetup').textContent='Photo service status unavailable.';});
 };
 window.prepareIdentifyPhoto=async file=>{
  const panel=$('#photoIdentifyPanel'),generation=++photoGeneration;selectedPhoto=null;
@@ -591,6 +727,11 @@ window.identifySelectedPhoto=async()=>{
 };
 window.usePhotoSuggestion=()=>{
  const title=$('#photoSuggestion')?.value.trim();if(!title)return alert('Enter an item description or try a clearer photo.');
+ const identityQuery=$('#existingIdentityQuery');
+ if(identityQuery){
+  clearExistingIdentitySelection(true);identityQuery.value=title;
+  selectedPhoto=null;photoGeneration++;$('#photoIdentifyPanel').remove();searchExistingIdentity();return;
+ }
  acquisitionPhoto=selectedPhoto;photoSearchNote=title;
  const quick=!!$('#qDesc'),desc=$(quick?'#qDesc':'#bcDesc');if(!desc)return;
  desc.value=title;$(quick?'#qBarcode':'#bcBarcode').value='';

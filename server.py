@@ -95,13 +95,13 @@ def ebay_access_token(scope="https://api.ebay.com/oauth/api_scope"):
     except Exception as e:
         return {"ok":False,"status":"eBay OAuth unavailable","detail":type(e).__name__}
 
-def ebay_browse_search(query, limit=12):
-    if not (query or "").strip():
+def ebay_browse_search(query, limit=12, *, gtin=None):
+    if not gtin and not (query or "").strip():
         return {"ok":False,"status":"No query","detail":"Enter an item to search eBay UK."}
     auth=ebay_access_token()
     if not auth.get("ok"): return auth
     params=urlencode({
-        "q":query.strip(),
+        ("gtin" if gtin else "q"):gtin or query.strip(),
         "limit":max(1,min(int(limit),20)),
         "filter":"itemLocationCountry:GB"
     })
@@ -1068,6 +1068,12 @@ class H(SimpleHTTPRequestHandler):
             self.send_json(market_overview.identity_detail((p.get('item') or [''])[0],ebay_access_token));return
         if u.path == '/api/identity-search':
             p=parse_qs(u.query);query=(p.get('q') or [''])[0].strip()
+            if p.get('barcode'):
+                try:
+                    code=item_identification.normalize_barcode(p['barcode'][0])
+                except ValueError as exc:
+                    self.send_json({'ok':False,'status':str(exc)},400);return
+                self.send_json(market_overview.identity_search(code,lambda _,limit:ebay_browse_search('',limit,gtin=code)));return
             if not 2<=len(query)<=200:
                 self.send_json({'ok':False,'status':'Enter a product name (2–200 characters).'},400);return
             self.send_json(market_overview.identity_search(query,ebay_browse_search));return

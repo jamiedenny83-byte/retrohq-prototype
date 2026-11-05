@@ -89,3 +89,34 @@ html[data-theme="light"] :is(.buy-grade-card,.grade-hint){background:#edf2fa;col
 .marketplace-row>div:first-child{flex:1 1 240px}
 .marketplace-row>div:last-child{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .marketplace-row .btn{display:inline-flex;align-items:center;justify-content:center;text-decoration:none}
+.identity-workflow { display: grid; gap: 14px; }
+.identity-workflow h2, .identity-workflow h3 { margin: 0; }
+.identity-label { display: block; font-weight: 650; margin-bottom: 6px; }
+.identity-help { margin: 5px 0 0; }
+.identity-workflow .scan-actions { margin: 0; }
+.identity-source { flex: 1; min-width: 145px; }
+.identity-source summary, .identity-review summary, .identity-match-list summary { cursor: pointer; padding: 7px 0; }
+.identity-source label { display: block; }
+.identity-source .select { max-width: 300px; }
+.identity-workflow #identityCaptureTools:empty, .identity-workflow #existingIdentityMatches:empty,
+.identity-workflow #existingIdentityError:empty { display: none; }
+.identity-match-list { display: grid; gap: 6px; margin-top: 8px; }
+.identity-match { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 10px;
+ padding: 9px 12px; border: 1px solid var(--hq-line, #34415a); border-radius: 10px; overflow-wrap: anywhere; }
+.identity-match small { display: block; }
+.identity-match-list details > .identity-match + .identity-match { margin-top: 6px; }
+.identity-review { padding: 14px; border: 1px solid var(--hq-line, #34415a);
+ border-radius: 12px; background: var(--hq-raised, var(--hq-surface, #131c2d)); }
+.identity-review .formgrid { margin: 10px 0; }
+.identity-review .input { margin-top: 5px; }
+.identity-confirm { display: flex; align-items: flex-start; gap: 8px; margin-top: 8px; }
+.identity-confirm input { margin: .3em 0 0; }
+.identity-actions { position: sticky; bottom: -20px; z-index: 4; flex-wrap: wrap; margin: 0;
+ padding: 10px 0; background: var(--hq-surface, #111827); border-top: 1px solid var(--hq-line, #34415a); }
+.identity-actions [role="alert"] { flex-basis: 100%; margin: 0; }
+@media(max-width: 620px) {
+ .identity-workflow .counter-search-row { grid-template-columns: minmax(0, 1fr) auto; }
+ .identity-workflow .counter-input { min-width: 0; font-size: 16px; }
+ .identity-actions { bottom: -18px; gap: 6px; }
+ .identity-actions .btn { padding-inline: 8px; font-size: 14px; }
+}
