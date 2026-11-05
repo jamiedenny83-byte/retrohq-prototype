@@ -13,6 +13,20 @@ def hit(title,pid,category='GBA Software Gameboy Advance Software'):
     return {'boxName':title,'boxId':pid,'categoryName':category,'sellPrice':40,'cashPriceCalculated':15,'exchangePriceCalculated':20}
 
 class RetroVariantTests(unittest.TestCase):
+    def test_super_nes_catalogue_matches_snes_without_accepting_nes(self):
+        query='Super Nintendo Starwing SNES Game'
+        intent=server.infer_intent(query)
+        self.assertEqual((intent['type'],intent['platform'],intent['gameTitle']),('software','SNES','starwing'))
+        rows=[hit('Starwing, Unboxed','SNES-C','Super NES Software 1037 Gaming'),
+              hit('Starwing, w/ Manual, Boxed','SNES-B','Super NES Software 1037 Gaming'),
+              hit('Starwing, Unboxed','WRONG','NES Software')]
+        with patch.object(server,'urlopen',return_value=Response({'results':[{'hits':rows}]})):
+            matches=server.cex_search(query,intent)
+        self.assertEqual({row['productId'] for row in matches['variants']},{'SNES-C','SNES-B'})
+        with patch.object(server,'cex_detail',return_value=rows[1]):
+            quote=server.cex_search(query,intent,selected_product_id='SNES-B')
+        self.assertEqual((quote['retail'],quote['cash'],quote['voucher']),(40,15,20))
+
     def test_krazy_racers_shows_all_exact_completeness_variants_regardless_of_console_grade(self):
         rows=[hit('Konami Krazy Racers, '+suffix,str(n)) for n,suffix in enumerate(['Unboxed','w/o Manual, Boxed','w/ Manual, Boxed','Mint'])]
         for grade in ['Unboxed','Boxed',None]:

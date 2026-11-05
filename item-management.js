@@ -52,13 +52,14 @@ function identify(item,input,now){
  (copy.timeline||(copy.timeline=[])).push(['Item identified',now+' · '+copy.identity.source+' · '+title]);
  return copy;
 }
-function saveBenchmark(item,value,evidence,now){
- if(sold(item)||!Number.isFinite(value)||value<=0)throw Error('A current UK benchmark is required for an unsold item.');
+function saveValuation(item,update,now){
+ if(sold(item)||item.stockRemoval||item.importHold||!Number.isFinite(update.value)||update.value<0)throw Error('A valid valuation is required for an available item.');
  const copy=JSON.parse(JSON.stringify(item));
- (copy.editHistory||(copy.editHistory=[])).push({date:now,before:{baseMarket:item.baseMarket??null,valuation:item.valuation||null,marketEvidence:item.marketEvidence||[]}});
- Object.assign(copy,{baseMarket:value,marketIsConditionSpecific:true,needsValuation:false,marketEvidence:evidence,
-  valuation:{finalValue:value,acquisitionValue:item.valuation?.acquisitionValue??null,benchmark:value,benchmarkLabel:'CeX UK retail benchmark',source:'CeX UK retail benchmark',confidence:'uk-retail-benchmark',timestamp:now,stale:false}});
- copy.timeline.push(['Value updated','CeX UK retail benchmark £'+value.toFixed(2)]);
+ (copy.editHistory||(copy.editHistory=[])).push({date:now,before:{baseMarket:item.baseMarket??null,valuation:item.valuation||null,marketEvidence:item.marketEvidence||[],
+  condition:item.condition,accessories:item.accessories||null,cexProductId:item.cexProductId||null,cexGrade:item.cexGrade||null}});
+ for(const key of ['valuation','marketEvidence','condition','accessories','cexProductId','cexGrade','cexProduct'])copy[key]=update[key];
+ Object.assign(copy,{baseMarket:update.value,marketIsConditionSpecific:true,needsValuation:false});
+ copy.timeline.push(['Value updated',now+' · £'+update.value.toFixed(2)+' · '+update.valuation.source]);
  return copy;
 }
 function changeStockRemoval(item,remove,reason,now){
@@ -71,5 +72,5 @@ function changeStockRemoval(item,remove,reason,now){
  copy.timeline.push([remove?'Removed from stock by manager':'Restored to stock by manager',now+' · '+reason]);
  return copy;
 }
-const api={sold,steps,stage,transition,edit,identify,saveBenchmark,changeStockRemoval};if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.RetroItems=api;
+const api={sold,steps,stage,transition,edit,identify,saveValuation,changeStockRemoval};if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.RetroItems=api;
 })(typeof globalThis!=='undefined'?globalThis:this);

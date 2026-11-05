@@ -1,6 +1,21 @@
 const test=require('node:test'),assert=require('node:assert/strict'),M=require('../item-management');
 const item=()=>({id:1,title:'Game',buy:10,baseMarket:40,status:'Needs testing',timeline:[],location:'Shelf A',valuation:{finalValue:35,benchmark:40,acquisitionValue:35,source:'CeX UK'}});
 const input=()=>({buy:'12',value:'50',valueChanged:true,area:'Shop',shelf:'A1',notes:'Retested',offerPct:45});
+test('shared valuation updates the original item without rewriting acquisition or listing history',()=>{
+ const before={...item(),listing:{channel:'eBay Live',price:17},liveListingId:'123',condition:'Good'};
+ const evidence=[{provider:'CeX UK',status:'Live',retail:25}];
+ const update={value:25,valuation:{source:'CeX UK',finalValue:25,acquisitionValue:35},marketEvidence:evidence,condition:'Good',
+  accessories:{box:true},cexProductId:'BOXED',cexGrade:'Boxed',cexProduct:'Exact title'};
+ const next=M.saveValuation(before,update,'2026-11-05T20:00:00Z');
+ assert.equal(next.id,before.id);
+ assert.equal(next.buy,before.buy);
+ assert.equal(next.baseMarket,25);
+ assert.equal(next.valuation.acquisitionValue,35);
+ assert.deepEqual(next.listing,before.listing);
+ assert.equal(next.liveListingId,before.liveListingId);
+ assert.deepEqual(next.editHistory[0].before.valuation,before.valuation);
+ assert.throws(()=>M.saveValuation({...before,status:'Completed'},update,'date'));
+});
 test('category correction preserves stock, listing and costs while requiring identity review',()=>{
  const before={...item(),category:'Console',identity:{type:'hardware'},listing:{channel:'eBay Live',price:17},liveListingId:'123'};
  const after=M.edit(before,{...input(),category:'Video Game',buy:'10',valueChanged:false},'date');

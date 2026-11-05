@@ -324,7 +324,7 @@ def _cex_platforms(text):
     if re.search(r'\bxbox\b',words) and not any(x.startswith('Xbox') for x in found): found.add('Original Xbox')
     if re.search(r'\b(?:ps\s*1|psone|playstation)\b',words) and not any(x.startswith('PlayStation') for x in found): found.add('PlayStation 1')
     for pattern,platform in ((r'\bgame\s*cube\b','GameCube'),(r'\b(?:nintendo\s*64|n\s*64)\b','Nintendo 64'),
-        (r'\b(?:super\s*nintendo|snes)\b','SNES'),(r'\bnes\b','NES'),(r'\b(?:dreamcast)\b','Dreamcast'),
+        (r'\b(?:super\s*(?:nintendo|nes)|snes)\b','SNES'),(r'(?<!super )\bnes\b','NES'),(r'\b(?:dreamcast)\b','Dreamcast'),
         (r'\b(?:mega\s*drive|genesis)\b','Mega Drive'),(r'\bsaturn\b','Saturn'),(r'\bswitch\b','Nintendo Switch')):
         if re.search(pattern,words): found.add(platform)
     if re.search(r'\bwii\s*u\b',words): found.add('Wii U')
@@ -718,8 +718,7 @@ def _platform_product_kind(query, phrases):
     remainder = q
     for phrase in platform_phrases:
         if re.search(r"\b" + re.escape(phrase) + r"\b", remainder):
-            remainder = re.sub(r"\b" + re.escape(phrase) + r"\b", " ", remainder, count=1)
-            break
+            remainder = re.sub(r"\b" + re.escape(phrase) + r"\b", " ", remainder)
     terms = normalize_words(remainder)
     # Explicit references to games take precedence unless explicitly hardware.
     if any(t in ("console", "system", "handheld") for t in terms):
@@ -752,6 +751,7 @@ def infer_intent(query):
       (("ps2","playstation 2"),"PlayStation","PlayStation 2","hardware",["PlayStation 2 System","PS2 System"],["playstation 2","ps2"],["playstation 3","ps3"]),
       (("gameboy advance","game boy advance","gba"),"Nintendo","Game Boy Advance","hardware",["Game Boy Advance System","GameBoy Advance System"],["gameboy advance","game boy advance"],["gameboy color","game boy color","gameboy sp","game boy sp"]),
       (("gameboy color","game boy color","gbc"),"Nintendo","Game Boy Color","hardware",["Game Boy Color System","GameBoy Color System"],["gameboy color","game boy color"],["gameboy advance","game boy advance"]),
+      (("super nintendo","super nes","snes"),"Nintendo","SNES","hardware",["Super Nintendo System","SNES System"],["super nintendo","super nes","snes"],[]),
     ]
     # Prefer longest/specific phrases first.
     for phrases,family,label,typ,provider,allowed,excluded in taxonomy:
