@@ -50,7 +50,13 @@ function validate(state){
  if(state.marketInsights!=null)(typeof module!=='undefined'&&module.exports?require('./market-insights'):root.RetroMarket).validate(state.marketInsights);
  if(state.marketOverview!=null)(typeof module!=='undefined'&&module.exports?require('./market-overview'):root.RetroOverview).validate(state.marketOverview);
  const customerIds=new Set();
- for(const c of state.customers){if(!object(c)||!Number.isSafeInteger(c.id)||customerIds.has(c.id)||typeof c.name!=='string'||!Number.isFinite(c.credit)||!Array.isArray(c.ledger))fail('Invalid trade account.');customerIds.add(c.id);}
+ for(const c of state.customers){
+  if(!object(c)||!Number.isSafeInteger(c.id)||customerIds.has(c.id)||typeof c.name!=='string'||!Number.isFinite(c.credit)||!Array.isArray(c.ledger))fail('Invalid trade account.');
+  for(const field of ['email','phone','addressLine1','addressLine2','town','county','postcode','country']){
+   if(c[field]!=null&&(typeof c[field]!=='string'||c[field].length>160))fail('Invalid customer contact details.');
+  }
+  customerIds.add(c.id);
+ }
  for(const k of ['offerPct','storeCreditBonus','greenMargin','yellowMargin'])if(!Number.isFinite(state.settings[k]))fail('Invalid business settings.');
  for(const fee of Object.values(state.settings.fees))if(!object(fee)||!['fixed','percent'].includes(fee.type)||!Number.isFinite(fee.value)||fee.value<0)fail('Invalid fee settings.');
  if(!Number.isFinite(state.creditIssued))fail('Invalid credit total.');

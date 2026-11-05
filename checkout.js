@@ -31,6 +31,34 @@ function complete(state,input,id,date){
  next.transactions=next.transactions||[];next.transactions.push({...receipt,id,date,channel:input.channel,customerId:input.customerId||null,currency:'GBP',amountUnit:'pence'});
  return next;
 }
-const api={available,quote,complete,allocate};
+function customerPurchases(state,customerId){
+ const items=new Map(state.items.map(item=>[item.id,item]));
+ const receipts=(state.transactions||[]).filter(receipt=>receipt.customerId===customerId);
+ const receiptIds=new Set(receipts.map(receipt=>receipt.id));
+ const purchases=receipts.map(receipt=>({
+  date:receipt.date,channel:receipt.channel,total:receipt.total,credit:receipt.credit,paid:receipt.due,
+  items:receipt.lines.map(line=>items.get(line.id)?.title||'Item'),returned:receipt.outcome==='returned'
+ }));
+ const returns=[],tradeIns=new Map();
+ for(const item of state.items){
+  const records=[...(item.saleHistory||[]).filter(sale=>sale.outcome==='Returned'),...(item.sale?[item.sale]:[])];
+  for(const sale of records){
+   const linkedReceipt=receiptIds.has(sale.transactionId);
+   if(sale.customerId!==customerId&&!linkedReceipt)continue;
+   const total=Math.round(sale.price*100),credit=Math.round((sale.creditUsed||0)*100);
+   if(!linkedReceipt)purchases.push({date:sale.date,channel:sale.channel,total,credit,paid:total-credit,items:[item.title],returned:sale.outcome==='Returned'});
+   if(sale.outcome==='Returned')returns.push({title:item.title,date:sale.returnDate,refund:Number.isFinite(sale.refund)?Math.round(sale.refund*100):null});
+  }
+  if(item.tradeCustomerId!==customerId)continue;
+  const key=item.batchId||item.id;
+  if(!tradeIns.has(key))tradeIns.set(key,{date:item.acquiredDate,total:0,items:[]});
+  const trade=tradeIns.get(key);
+  trade.items.push(item.title);
+  if(Number.isFinite(item.buy))trade.total+=Math.round(item.buy*100);
+ }
+ const newest=(a,b)=>String(b.date||'').localeCompare(String(a.date||''));
+ return {purchases:purchases.sort(newest),returns:returns.sort(newest),tradeIns:[...tradeIns.values()].sort(newest)};
+}
+const api={available,quote,complete,allocate,customerPurchases};
 if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.RetroCheckout=api;
 })(typeof globalThis!=='undefined'?globalThis:this);

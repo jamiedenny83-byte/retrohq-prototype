@@ -1,6 +1,25 @@
 const test=require('node:test'),assert=require('node:assert/strict'),C=require('../checkout'),B=require('../workspace-backup');
 const sample=()=>({items:[1,2,3].map(id=>({id,title:'Item '+id,status:'Listed',timeline:[],buy:3,processingCosts:0,listing:{price:10}})),customers:[{id:1,name:'Test account',credit:20,ledger:[]}],settings:{fees:{'In Store EPOS':{type:'percent',value:0},eBay:{type:'percent',value:12.8}},offerPct:45,greenMargin:45,yellowMargin:30,storeCreditBonus:15},creditIssued:20});
 const input=()=>({lines:[{id:1,price:10},{id:2,price:20}],channel:'In Store EPOS',discountType:'fixed',discount:5,feeType:'percent',feeValue:0,credit:10,customerId:1});
+test('customer purchases include zero-credit baskets once, with returns and trade-ins separate',()=>{
+ const initial=sample(),account=initial.customers[0];
+ Object.assign(account,{email:'buyer@example.test',phone:'01234567890',addressLine1:'10 Example Road',town:'Example Town',postcode:'AB1 2CD'});
+ const next=C.complete(initial,{...input(),credit:0},'customer-cash','2026-11-05');
+ assert.equal(next.customers[0].credit,20);
+ assert.deepEqual(next.customers[0].ledger,[]);
+ assert.equal(next.items[0].sale.customerId,1);
+ assert.equal(next.transactions[0].customerId,1);
+ next.items[0].saleHistory=[{...next.items[0].sale,outcome:'Returned',returnDate:'2026-11-06',refund:5}];
+ next.items[0].sale=null;
+ Object.assign(next.items[2],{tradeCustomerId:1,batchId:'trade-in-cash',acquiredDate:'2026-11-04'});
+ const saved=B.parse(B.pack(next,'saved'),'saved').state;
+ assert.equal(saved.customers[0].addressLine1,'10 Example Road');
+ const activity=C.customerPurchases(saved,1);
+ assert.deepEqual(activity.purchases,[{date:'2026-11-05',channel:'In Store EPOS',total:2500,credit:0,paid:2500,items:['Item 1','Item 2'],returned:false}]);
+ assert.deepEqual(activity.returns,[{title:'Item 1',date:'2026-11-06',refund:500}]);
+ assert.deepEqual(activity.tradeIns,[{date:'2026-11-04',total:300,items:['Item 3']}]);
+ assert.deepEqual(C.customerPurchases(saved,2),{purchases:[],returns:[],tradeIns:[]});
+});
 test('basket discount, credit and stock are committed once; original remains untouched',()=>{const s=sample(),n=C.complete(s,input(),'receipt-1','2026-10-13');assert.equal(s.items[0].sale,undefined);assert.equal(n.customers[0].credit,10);assert.equal(n.customers[0].ledger.length,1);assert.equal(n.transactions[0].due,1500);assert.equal(n.items[0].sale.price+n.items[1].sale.price,25);assert.equal(n.items[0].status,'Completed');assert.equal(C.available(n.items[0]),false);assert.throws(()=>C.complete(n,input(),'receipt-1','2026-10-13'));assert.deepEqual(B.parse(B.pack(n,'saved'),'saved').state,n);});
 test('percentage discount, transaction fee and credit allocate exactly to pennies',()=>{const x=input();x.lines=[{id:1,price:10.01},{id:2,price:10.01},{id:3,price:10.01}];x.discountType='percent';x.discount=10;x.feeType='fixed';x.feeValue=1.01;x.credit=1.01;const q=C.quote(sample(),x);assert.equal(q.discount,300);for(const [k,total] of [['price','total'],['fee','fee'],['credit','credit'],['discount','discount']])assert.equal(q.lines.reduce((a,l)=>a+l[k],0),q[total]);});
 test('blank, negative, excessive discount and credit, duplicate and sold stock fail without mutation',()=>{for(const change of [x=>x.lines[0].price='',x=>x.lines[0].price=-1,x=>x.discount=31,x=>x.credit=21,x=>x.customerId=null,x=>x.lines.push(x.lines[0]),x=>x.feeValue=101]){const s=sample(),before=JSON.stringify(s),x=input();change(x);assert.throws(()=>C.complete(s,x,'id','date'));assert.equal(JSON.stringify(s),before);}const s=sample();s.items[1].sale={price:1};assert.throws(()=>C.quote(s,input()));});

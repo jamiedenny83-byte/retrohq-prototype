@@ -23,7 +23,7 @@ const state={view:'dashboard',activeItem:1,activeTab:'Overview',creditIssued:115
 const root=$('#root'), modal=$('#modal'), backdrop=$('#backdrop');
 const demoDefaults=demoMode?RetroDemo.seed(state):null;
 if(demoMode){Object.assign(state,demoDefaults);state.view='sales';document.querySelector('header .demo').textContent='TEST 8.4 · OFFLINE DEMO';document.title='RetroHQ · OFFLINE DEMO';}
-const meta={production:['Production eBay','Shared inventory and sales, updated from your eBay account.'],opportunities:['Resale opportunities','Top 10 per category using checked CeX cash and landed costs.'],dashboard:['Dashboard','HQ Today, workflow status and business health.'],acquisitions:['Acquisitions','Fast buying decisions with consistent rules.'],inventory:['Inventory','Available stock only.'],soldInventory:['Sales','Sales, sold stock, receipts and fulfilment.'],processing:['Processing','Priority queue for work in progress.'],sales:['Sales','Sales and fulfilment linked to inventory.'],customers:['Trade Accounts','Store-credit balances and trade history.'],market:['HQ Market','Live readings, tracked prices and measured market movement.'],reports:['Reports','Margin, velocity and sales outcomes.'],settings:['Settings','Business rules and fee presets.'],item:['Item Workspace','One item. One record. One lifecycle.']};
+const meta={production:['Production eBay','Shared inventory and sales, updated from your eBay account.'],opportunities:['Resale opportunities','Top 10 per category using checked CeX cash and landed costs.'],dashboard:['Dashboard','HQ Today, workflow status and business health.'],acquisitions:['Acquisitions','Fast buying decisions with consistent rules.'],inventory:['Inventory','Available stock only.'],soldInventory:['Sales','Sales, sold stock, receipts and fulfilment.'],processing:['Processing','Priority queue for work in progress.'],sales:['Sales','Sales and fulfilment linked to inventory.'],customers:['Trade Accounts','Customer details, purchases and store credit.'],customerNew:['New customer account','Enter the customer details.'],customerDetail:['Customer account','Purchase activity and store credit.'],market:['HQ Market','Live readings, tracked prices and measured market movement.'],reports:['Reports','Margin, velocity and sales outcomes.'],settings:['Settings','Business rules and fee presets.'],item:['Item Workspace','One item. One record. One lifecycle.']};
 const pill=(t,c='')=>`<span class="pill ${c}">${t}</span>`;
 const metric=(a,b,c,action='')=>action?`<button class="metric" onclick="${action}"><span>${a}</span><strong>${b}</strong><small>${c}</small></button>`:`<div class="metric"><span>${a}</span><strong>${b}</strong><small>${c}</small></div>`;
 function marketValue(i){if(i.valuation?.finalValue!=null)return Math.round(Number(i.valuation.finalValue)*100)/100;const base=Number(i.baseMarket)||0;return i.marketIsConditionSpecific?Math.round(base*100)/100:Math.round(base*(factors[i.condition]||.85)*100)/100;}
@@ -72,7 +72,7 @@ function periodButtons(){
 
 function open(html){RetroCapture.stop();modal.innerHTML=html;backdrop.classList.remove('hidden');}
 function closeModal(){RetroCapture.stop();persistState();backdrop.classList.add('hidden');modal.innerHTML='';}
-function go(v){if(v==='soldInventory')v='sales';state.view=v;$$('#nav button').forEach(b=>b.classList.toggle('active',b.dataset.view===v));$('#title').textContent=meta[v][0];$('#subtitle').textContent=meta[v][1];$('#sidebar').classList.remove('open');render();}
+function go(v){if(v==='soldInventory')v='sales';state.view=v;$$('#nav button').forEach(b=>b.classList.toggle('active',b.dataset.view===v||b.dataset.view==='customers'&&['customerNew','customerDetail'].includes(v)));$('#title').textContent=meta[v][0];$('#subtitle').textContent=meta[v][1];$('#sidebar').classList.remove('open');render();}
 function salesTable(items){return `<div class="card tablewrap"><p class="muted">Sold for is the actual item revenue. Marketplace fees are separate from purchase and preparation costs. Estimated fees do not confirm profit.</p><table class="table"><thead><tr><th>Item / sold date</th><th>Sold for</th><th>Marketplace fee</th><th>Buy</th><th>Preparation</th><th>Net profit</th><th>Lifecycle</th><th>Costs</th></tr></thead><tbody>${items.map(i=>{const s=i.sale,a=RetroOps.saleAmounts(i,state.settings.fees.eBay),econ=RetroOps.economics(i);return `<tr class="click" onclick="openItem(${i.id},'Sales')"><td><strong>${escapeText(i.title)}</strong><small class="table-note">${escapeText(s.date||'Date unknown')} · ${escapeText(s.channel||'Channel unknown')}</small><small class="table-note">${i.liveListingId?'Listing '+escapeText(i.liveListingId)+' · ':''}${escapeText(i.liveSku||'')}</small></td><td><strong>${knownMoney(a.price)}</strong><small class="table-note">Item revenue${Number.isFinite(s.shippingRevenue)?' · buyer postage '+money(s.shippingRevenue):' · buyer postage unknown'}</small>${!i.needsValuation&&Number.isFinite(i.valuation?.finalValue??i.baseMarket)?'<small class="table-note">Reference value '+money(marketValue(i))+'</small>':''}</td><td><strong>${knownMoney(a.fee)}</strong><small class="table-note">${a.fee===null?'Fee not set':(a.feeType==='percent'?a.feeValue+'% · ':'')+(a.estimated?'Estimated · business default':s.costsConfirmed?'Confirmed':'Recorded fee')}</small></td><td>${knownMoney(i.buy)}</td><td>${knownMoney(i.processingCosts)}<small class="table-note">Cleaning / repair etc.</small></td><td>${econ.profit===null?pill(s.reviewNeeded?'Order review':'Costs need review','warn'):'<strong>'+money(econ.profit)+'</strong>'+marginBadge(econ.margin)}</td><td>${pill(i.status||'Sold',completionClass(i))}</td><td><button class="btn secondary" onclick="event.stopPropagation();editImportedCosts(${i.id})">Review costs</button></td></tr>`;}).join('')}</tbody></table></div>`;}
 function table(items){return `<div class="card tablewrap"><table class="table"><thead><tr><th>Item</th><th>Manufacturer</th><th>Condition</th><th>Buy</th><th>Market</th><th>Margin</th><th>HQ</th><th>Lifecycle</th><th>Sales</th></tr></thead><tbody>${items.map(i=>{const e=i.sale?soldEcon(i):expected(i);return `<tr class="click" onclick="openItem(${i.id})"><td><strong>${i.title}</strong><div class="muted">${i.category} · ${i.location}</div>${signalHtml(i)}</td><td>${i.manufacturer||'—'}</td><td>${i.condition}</td><td>${knownMoney(i.buy)}</td><td><strong>${knownMoney(independentMarketValue(i))}</strong>${ebayListedPrice(i)!=null?'<small class="table-note">eBay listed '+money(ebayListedPrice(i))+'</small>':''}${i.valuation?.confidence==='adjusted'?'<small class="table-note">Smart value</small>':''}${RetroCheckout.available(i)?`<button class="btn secondary edit-value" onclick="event.stopPropagation();editItem(${i.id})">Edit value</button>`:''}</td><td>${marginBadge(e.margin)}</td><td>${score(i)}</td><td>${pill(i.status||'Acquired',completionClass(i))}</td><td>${i.sale?.channel||i.listing?.channel||'—'}</td></tr>`}).join('')}</tbody></table></div>`;}
 function stockSystem(i){return RetroOps.stockSystem(i);}
@@ -131,8 +131,12 @@ function sales(){
  <details class="card"><summary>Legacy sold records awaiting reconciliation</summary>${table(state.items.filter(i=>!i.sale&&['Sold','Packaged','Dispatched','Delivered','Completed'].includes(i.status)))}</details><div class="card"><h3>Sales workflow</h3><p class="muted">Recording a sale updates the item lifecycle automatically. In-store collected sales complete immediately; online sales move to Sold / dispatch workflow.</p></div>`;
 }
 window.filterSales=()=>{const q=($('#salesSearch')?.value||'').toLowerCase();$('#salesResults').innerHTML=salesTable(state.items.filter(i=>salePeriodMatch(i)&&[i.title,i.liveListingId,i.liveSku,i.location].join(' ').toLowerCase().includes(q)).sort((a,b)=>String(b.sale.date).localeCompare(String(a.sale.date))));};
-function transactionHistory(){return '<details class="card"><summary>Sale transactions</summary>'+((state.transactions||[]).filter(t=>RetroOps.reportPeriod(t.date.slice(0,10),state.reportPeriod)).slice().sort((a,b)=>String(b.date).localeCompare(String(a.date))).map(t=>'<div class="row"><div><strong>'+escapeText(t.channel)+' · '+escapeText(t.date)+'</strong><p>'+t.lines.map(l=>escapeText(state.items.find(i=>i.id===l.id)?.title||'Item')).join(' + ')+'</p><small>'+escapeText(t.id)+(t.outcome?' · Returned':t.review?' · Order review':'')+(t.source==='ebay-production'?' · Imported eBay sale':'')+' · Discount '+money(t.discount/100)+' · Trade credit '+money(t.credit/100)+'</small></div><strong>'+money(t.total/100)+'</strong></div>').join('')||'<p>No basket transactions recorded yet.</p>')+'</details>';}
-function customers(){return `<div class="hero"><div><h2>Trade Accounts</h2><p>Simple store-credit balances and a permanent transaction ledger.</p></div><div class="hero-actions"><button class="btn primary" onclick="newCustomer()">+ Trade account</button>${managerControl()}</div></div><div class="grid metrics">${metric('Credit issued',money(state.creditIssued),'Trade-in credit')}${metric('Outstanding',money(state.customers.reduce((a,c)=>a+c.credit,0)),'Customer liability')}${metric('Accounts',state.customers.length,'Trade accounts')}${metric('With credit',state.customers.filter(c=>c.credit>0).length,'Positive balances')}</div><div class="card"><div class="list">${state.customers.map(c=>`<div class="row"><button onclick="tradeAccount(${c.id})"><strong>${escapeText(c.name)}</strong><div class="muted">${c.ledger.length} ledger entries</div></button><strong>${money(c.credit)}</strong></div>`).join('')}</div></div>`;}
+function transactionCustomerLink(transaction){
+ const customer=state.customers.find(c=>c.id===transaction.customerId);
+ return customer?'<button class="btn secondary" onclick="tradeAccount('+customer.id+')">'+escapeText(customer.name)+'</button>':'';
+}
+function transactionHistory(){return '<details class="card"><summary>Sale transactions</summary>'+((state.transactions||[]).filter(t=>RetroOps.reportPeriod(t.date.slice(0,10),state.reportPeriod)).slice().sort((a,b)=>String(b.date).localeCompare(String(a.date))).map(t=>'<div class="row"><div><strong>'+escapeText(t.channel)+' · '+escapeText(t.date)+'</strong><p>'+t.lines.map(l=>escapeText(state.items.find(i=>i.id===l.id)?.title||'Item')).join(' + ')+'</p><small>'+escapeText(t.id)+(t.outcome?' · Returned':t.review?' · Order review':'')+(t.source==='ebay-production'?' · Imported eBay sale':'')+' · Discount '+money(t.discount/100)+' · Trade credit '+money(t.credit/100)+'</small>'+transactionCustomerLink(t)+'</div><strong>'+money(t.total/100)+'</strong></div>').join('')||'<p>No basket transactions recorded yet.</p>')+'</details>';}
+function customers(){return `<div class="hero"><div><h2>Trade Accounts</h2><p>Customer details, purchase history and store-credit balances.</p></div><div class="hero-actions"><button class="btn primary" onclick="newCustomer()">+ Customer account</button>${managerControl()}</div></div><div class="grid metrics">${metric('Credit issued',money(state.creditIssued),'Trade-in credit')}${metric('Outstanding',money(state.customers.reduce((a,c)=>a+c.credit,0)),'Customer liability')}${metric('Accounts',state.customers.length,'Trade accounts')}${metric('With credit',state.customers.filter(c=>c.credit>0).length,'Positive balances')}</div><div class="card"><div class="list">${state.customers.map(c=>`<div class="row"><button onclick="tradeAccount(${c.id})"><strong>${escapeText(c.name)}</strong><div class="muted">${c.ledger.length} ledger entries</div></button><strong>${money(c.credit)}</strong></div>`).join('')}</div></div>`;}
 let marketMode='overview';
 window.showMarketMode=mode=>{marketMode=mode==='tracked'?'tracked':'overview';render();};
 function market(){return '<div class="toolbar" aria-label="Market sections"><button class="btn '+(marketMode==='overview'?'primary':'secondary')+'" onclick="showMarketMode(\'overview\')">Market overview</button><button class="btn '+(marketMode==='tracked'?'primary':'secondary')+'" onclick="showMarketMode(\'tracked\')">My tracked items</button></div>'+(marketMode==='tracked'?marketInsights.view():marketOverview.view())+'<details class="card"><summary>Single-item live lookup and provider coverage</summary>'+`<div class="card live-market-search"><h3>Live market lookup</h3><div class="counter-search-row"><input id="marketQuery" class="input counter-input" placeholder="Try: Pokémon Charizard #4, PS3 Slim 320GB, LEGO set 6285, Power Rangers figure" onkeydown="if(event.key==='Enter')runMarketInsight()"><button class="btn primary" onclick="runMarketInsight()">Search live market</button></div><div id="marketLiveResult"><p class="muted">Search any stocked category. RetroHQ will show which providers returned usable evidence and will not invent missing prices.</p></div></div><div class="grid two market-explain"><div class="card"><h3>How RetroHQ uses the evidence</h3><div class="row"><span>CeX UK</span><strong>UK retail / trade benchmark where product coverage exists</strong></div><div class="row"><span>eBay UK</span><strong>Live active-listing asking-price evidence</strong></div><div class="row"><span>PriceCharting</span><strong>Identification, reference prices & sales volume</strong></div><p class="muted">Active eBay asking prices are evidence, not sold prices. RetroHQ will not treat them as completed-sale value.</p></div><div class="card"><h3>Category coverage</h3><div class="row"><span>Games & consoles</span><strong>UK evidence first</strong></div><div class="row"><span>Trading cards</span><strong>PriceCharting + eBay evidence</strong></div><div class="row"><span>Toys / LEGO / Funko</span><strong>Use supported providers; flag gaps</strong></div><p class="muted">RetroHQ's own acquisition and sale history will increasingly become a fourth evidence source.</p></div></div>`+'</details>';}
@@ -202,7 +206,7 @@ function itemPageContent(i){
 }
 window.quickSale=()=>manualSale(state.view==='item'&&RetroCheckout.available(state.items.find(i=>i.id===state.activeItem)||{})?state.activeItem:undefined);
 
-function render(){if(!persistState())return;const views={production:marketplace.liveView,opportunities:marketplace.opportunityView,dashboard,acquisitions,inventory,soldInventory,processing,sales,customers,market,reports,settings,item:itemView};root.innerHTML=workspaceBanner()+(demoMode&&state.view==='settings'?'<div class="card"><h3>Offline demo settings</h3><p>Seller connections and provider settings are available in your saved workspace.</p></div>':(views[state.view]||dashboard)());if(!demoMode&&state.view==='production')setTimeout(marketplace.refresh,0);if(!demoMode&&state.view==='market')setTimeout(refreshProviderStatus,0);if(!demoMode&&['settings','sales'].includes(state.view))setTimeout(refreshSellerStatus,0);}
+function render(){if(!persistState())return;const views={production:marketplace.liveView,opportunities:marketplace.opportunityView,dashboard,acquisitions,inventory,soldInventory,processing,sales,customers,customerNew:customerEntry,customerDetail:customerDetail,market,reports,settings,item:itemView};root.innerHTML=workspaceBanner()+(demoMode&&state.view==='settings'?'<div class="card"><h3>Offline demo settings</h3><p>Seller connections and provider settings are available in your saved workspace.</p></div>':(views[state.view]||dashboard)());if(!demoMode&&state.view==='production')setTimeout(marketplace.refresh,0);if(!demoMode&&state.view==='market')setTimeout(refreshProviderStatus,0);if(!demoMode&&['settings','sales'].includes(state.view))setTimeout(refreshSellerStatus,0);}
 window.go=go;window.closeModal=closeModal;
 let savedWorkspace=null, workspaceReady=false, storageFailed=false, syncingOrders=false;
 function persistState(){
@@ -873,7 +877,7 @@ function saveTradeIn(type){
   const batchId=crypto.randomUUID(),date=today(),firstId=state.items.reduce((id,item)=>Math.max(id,item.id+1),Date.now());
   const items=rows.map((row,index)=>({
    id:firstId+index,title:row.title,manufacturer:row.manufacturer,category:'Uncategorised',
-   source:type,batchId,batchName:type+' '+date,acquiredDate:date,buy:paid[index]/100,
+   source:type,batchId,batchName:type+' '+date,acquiredDate:date,buy:paid[index]/100,tradeCustomerId:customer?.id??null,
    baseMarket:row.market?tradePence(row.market,'optional market value')/100:null,
    needsValuation:!row.market,needsIdentification:true,condition:row.condition,acquiredCondition:row.condition,
    status:'Acquired',location:'Unassigned',velocity:75,notes:'',photos:0,processingCosts:0,listing:null,sale:null,
@@ -975,22 +979,57 @@ function tradeText(value,max){
  if(text.length>max||/[<>"`\x00-\x1f]/.test(text)||/^javascript:/i.test(text))throw Error('Use plain text within the field limit.');
  return text;
 }
+const customerFields=[
+ ['name','Full name','text','name',120],['email','Email address','email','email',160],['phone','Phone number','tel','tel',40],
+ ['addressLine1','Address line 1','text','address-line1',160],['addressLine2','Address line 2','text','address-line2',160],
+ ['town','Town / city','text','address-level2',100],['county','County / region','text','address-level1',100],
+ ['postcode','Postcode','text','postal-code',24],['country','Country','text','country-name',100]
+];
+function customerInputs(account={}){
+ return customerFields.map(([key,label,type,autocomplete,max])=>`<label>${label}<input name="${key}" class="input" type="${type}" autocomplete="${autocomplete}" maxlength="${max}" ${key==='name'?'required':''} value="${escapeText(account[key]||'')}"></label>`).join('');
+}
+function readCustomerDetails(fields){
+ return Object.fromEntries(customerFields.map(([key,,,,max])=>[key,tradeText(fields.get(key),max)]));
+}
+function customerEntry(){
+ return `<section class="card"><h2>New customer account</h2><p>Enter a name and any contact or address details you have.</p>
+ <form id="customerEntryForm" onsubmit="saveNewCustomer(event)"><div class="formgrid">${customerInputs()}</div>
+ <p id="customerEntryError" role="alert"></p><div class="modal-actions"><button type="button" class="btn secondary" onclick="go('customers')">Cancel</button>
+ <button class="btn primary" type="submit">Create account</button></div></form></section>`;
+}
+function customerDetail(){
+ const account=state.customers.find(c=>c.id===state.activeCustomer);
+ if(!account)return '<p>Customer account unavailable.</p>';
+ const {purchases,returns,tradeIns}=RetroCheckout.customerPurchases(state,account.id);
+ const address=[account.addressLine1,account.addressLine2,account.town,account.county,account.postcode,account.country].filter(Boolean);
+ const describe=items=>items.map(escapeText).join(' + ');
+ const date=value=>escapeText(String(value||'Date unknown').slice(0,10));
+ return `<div class="toolbar"><button class="btn secondary" onclick="go('customers')">Back to Trade Accounts</button></div>
+  <div class="hero"><div><h2>${escapeText(account.name)}</h2><p>Customer account</p></div><div class="hero-actions">
+   <button class="btn primary" onclick="manualSale(null,${account.id})">Record sale for this customer</button>
+   ${demoMode?'':'<button class="btn secondary" onclick="editTradeAccount('+account.id+')">Edit account / correct credit</button>'}</div></div>
+  <div class="grid metrics">${metric('Available store credit',money(account.credit),'Current balance')}${metric('Purchases',purchases.length,'Linked transactions')}
+   ${metric('Recorded purchase total',money(purchases.reduce((sum,row)=>sum+row.total,0)/100),'Before returns · all payment types')}</div>
+  <section class="card"><h3>Contact details</h3><dl><dt>Address</dt><dd>${address.length?address.map(escapeText).join('<br>'):'Not recorded'}</dd>
+   <dt>Email</dt><dd>${escapeText(account.email||'Not recorded')}</dd><dt>Phone</dt><dd>${escapeText(account.phone||'Not recorded')}</dd></dl></section>
+  <section class="card"><h3>Purchase history</h3>${purchases.map(row=>`<div class="row"><div><strong>${describe(row.items)}</strong>
+   <small class="table-note">${date(row.date)} · ${escapeText(row.channel||'Sale')}${row.returned?' · Returned':''}</small>
+   <small class="table-note">Store credit used ${money(row.credit/100)} · Other payment ${money(row.paid/100)}</small></div><strong>${money(row.total/100)}</strong></div>`).join('')||'<p>No purchases linked yet.</p>'}</section>
+  ${returns.length?`<section class="card"><h3>Returns</h3>${returns.map(row=>`<div class="row"><span>${date(row.date)} · ${escapeText(row.title)}</span><strong>${row.refund===null?'Refund to verify':'Refund '+money(row.refund/100)}</strong></div>`).join('')}</section>`:''}
+  ${tradeIns.length?`<section class="card"><h3>Trade-ins</h3>${tradeIns.map(row=>`<div class="row"><div><strong>${describe(row.items)}</strong><small class="table-note">${date(row.date)}</small></div><strong>${money(row.total/100)} paid</strong></div>`).join('')}</section>`:''}
+  <section class="card"><h3>Store-credit ledger</h3>${account.ledger.slice().reverse().map(row=>`<div class="row"><span>${date(row[0])} · ${escapeText(row[1])}</span><strong>${money(row[2])}</strong></div>`).join('')||'<p>No credit activity yet.</p>'}</section>`;
+}
 window.tradeAccount=id=>{
- const account=state.customers.find(c=>c.id===id);
- if(!account)return;
- open(`<h2>${escapeText(account.name)}</h2><div class="hero"><div><small>Available store credit</small><h2>${money(account.credit)}</h2></div></div>
-  ${account.email?'<p>Email: '+escapeText(account.email)+'</p>':''}${account.phone?'<p>Phone: '+escapeText(account.phone)+'</p>':''}
-  ${demoMode?'':'<button class="btn secondary" onclick="editTradeAccount('+id+')">Edit account / correct credit</button>'}
-  ${account.ledger.slice().reverse().map(row=>`<div class="row"><span>${escapeText(row[0])} · ${escapeText(row[1])}</span><strong>${money(row[2])}</strong></div>`).join('')}`);
+ if(!state.customers.some(c=>c.id===id))return;
+ if(!backdrop.classList.contains('hidden'))closeModal();
+ state.activeCustomer=id;go('customerDetail');
 };
 window.editTradeAccount=id=>{
  const account=state.customers.find(c=>c.id===id);
  if(!account||demoMode)return;
  if(!managerActive()){managerLogin(id);return;}
  open(`<h2>Edit trade account</h2><form id="tradeEditForm">
-  <div class="formgrid"><label>Name<input name="name" class="input" maxlength="120" required value="${escapeText(account.name)}"></label>
-  <label>Email<input name="email" class="input" type="email" maxlength="160" value="${escapeText(account.email||'')}"></label>
-  <label>Phone<input name="phone" class="input" type="tel" maxlength="40" value="${escapeText(account.phone||'')}"></label>
+  <div class="formgrid">${customerInputs(account)}
   <label>Corrected credit balance (£)<input name="balance" class="input" type="number" min="0" step="0.01" value="${Number(account.credit).toFixed(2)}" required></label></div>
   <label>Reason for change<input name="reason" class="input" maxlength="240" required></label><p id="tradeEditError" role="alert"></p>
   <div class="modal-actions"><button type="button" class="btn secondary" onclick="tradeAccount(${id})">Cancel</button><button class="btn primary" type="submit">Save manager change</button></div></form>`);
@@ -1003,7 +1042,7 @@ window.editTradeAccount=id=>{
   try{
    if(!managerActive())throw Error('Manager session expired. Reopen the account to sign in again.');
    const session=managerSession, fields=new FormData(form);
-   const details={name:tradeText(fields.get('name'),120),email:tradeText(fields.get('email'),160),phone:tradeText(fields.get('phone'),40)};
+   const details=readCustomerDetails(fields);
    const reason=tradeText(fields.get('reason'),240),balance=tradePence(fields.get('balance'),'corrected balance');
    if(!details.name||!reason)throw Error('Enter a name and a reason for the change.');
    const previous=Math.round(account.credit*100),delta=balance-previous;
@@ -1021,17 +1060,17 @@ window.editTradeAccount=id=>{
   finally{button.disabled=false;}
  };
 };
-window.newCustomer=()=>{
- const raw=prompt('Customer name');
- if(raw===null)return;
+window.newCustomer=()=>go('customerNew');
+window.saveNewCustomer=event=>{
+ event.preventDefault();
  try{
-  const name=tradeText(raw,120);
-  if(!name)throw Error('Enter a customer name.');
+  const details=readCustomerDetails(new FormData(event.currentTarget));
+  if(!details.name)throw Error('Enter a customer name.');
   const id=state.customers.reduce((next,c)=>Math.max(next,c.id+1),Date.now());
-  state.customers.push({id,name,credit:0,ledger:[]});
+  state.customers.push({id,...details,credit:0,ledger:[]});
   if(!persistState()){state.customers.pop();return;}
-  render();
- }catch(error){alert(error.message);}
+  tradeAccount(id);
+ }catch(error){$('#customerEntryError').textContent=error.message;}
 };
 window.syncSaleFulfilment=i=>{if(!i.sale)return;if(i.status==='Sold')i.sale.status='Ready to dispatch';else if(['Packaged','Dispatched','Delivered'].includes(i.status))i.sale.status=i.status;else if(i.status==='Completed'&&['In Store EPOS','Manual / Cash'].includes(i.sale.channel))i.sale.status='Collected in store';};
 function saleFulfilmentControls(i){const phases=['Sold','Packaged','Dispatched','Delivered','Completed'],next=phases[phases.indexOf(i.status)+1];return i.sale&&!i.sale.reviewNeeded&&phases.includes(i.status)&&i.status!=='Completed'?`<button class="btn primary" onclick="advanceFulfilment(${i.id})">Mark ${next.toLowerCase()}</button>`:'';}
@@ -1130,16 +1169,25 @@ window.addPhoto=id=>{const i=state.items.find(x=>x.id===id);i.photos++;i.timelin
 function saleDefaultPrice(i){const raw=i.valuation?.finalValue??i.baseMarket;if(i.needsValuation||raw==null||raw===''||!Number.isFinite(Number(raw))||Number(raw)<0)return '';return marketValue(i);}
 window.editLocalListing=id=>{const i=state.items.find(x=>x.id===id);if(!i?.listing||!RetroOps.active(i))return;const raw=prompt('Record the actual listing price (£). This does not change the marketplace.',i.listing.price);if(raw===null)return;const value=Number(raw);if(!raw.trim()||!Number.isFinite(value)||value<0)return alert('Enter a valid price.');const before=JSON.parse(JSON.stringify(i));(i.listingHistory||(i.listingHistory=[])).push({date:new Date().toISOString(),before:{...i.listing}});i.listing.price=Math.round(value*100)/100;i.timeline.push(['Listing price changed',new Date().toISOString()+' · '+money(before.listing.price)+' → '+money(value)+' recorded locally']);if(!persistState()){state.items[state.items.indexOf(i)]=before;return;}render();};
 let saleBasket=[],saleTransactionId=null,savingSale=false;
-window.manualSale=id=>{
+window.manualSale=(id,customerId=null)=>{
  const items=state.items.filter(RetroCheckout.available),first=items.find(i=>i.id===id)||items[0];if(!first)return alert('No items available.');
  saleBasket=[{id:first.id,price:saleDefaultPrice(first)}];saleTransactionId=crypto.randomUUID();
  open(`<h2>Record sale</h2><p>Prices start at the RetroHQ market value. Change them to the agreed sale price.</p><div id="saleLines"></div><button class="btn secondary" onclick="addSaleItem()">Add another item</button>
  <div class="formgrid"><label>Channel<select id="saleChannel" class="select" onchange="saleChannelChanged()">${Object.keys(state.settings.fees).map(c=>`<option ${c===(first.listing?.channel==='eBay Live'?'eBay':first.listing?.channel||'In Store EPOS')?'selected':''}>${escapeText(c)}</option>`).join('')}</select></label>
  <label>Discount type<select id="saleDiscountType" class="select" onchange="saleSummary()"><option value="fixed">£ off basket</option><option value="percent">% off basket</option></select></label><label>Overall discount<input id="saleDiscount" class="input" type="number" min="0" step="0.01" value="0" oninput="saleSummary()"></label></div>
  <details><summary>Channel fees (editable)</summary><div class="formgrid"><label>Fee type<select id="feeType" class="select" onchange="saleSummary()"><option value="percent">Percentage</option><option value="fixed">Fixed £ per transaction</option></select></label><label>Fee value<input id="feeValue" class="input" type="number" min="0" step="0.01" oninput="saleSummary()"></label></div></details>
- <div class="formgrid"><label>Trade account<select id="saleCustomer" class="select" onchange="saleSummary()"><option value="">No trade account</option>${state.customers.map(c=>`<option value="${c.id}">${escapeText(c.name)} · ${money(c.credit)} available</option>`).join('')}</select></label><label>Use trade credit<input id="saleCredit" class="input" type="number" min="0" step="0.01" value="0" oninput="saleSummary()"></label></div>
+ <div class="formgrid"><label>Customer account (optional)<select id="saleCustomer" class="select" onchange="saleCustomerChanged()"><option value="">Walk-in / no account</option>${state.customers.map(c=>`<option value="${c.id}" ${c.id===customerId?'selected':''}>${escapeText(c.name)}${c.postcode?' · '+escapeText(c.postcode):''}</option>`).join('')}</select></label>
+ <label>Use store credit (£)<input id="saleCredit" class="input" type="number" min="0" step="0.01" value="0" oninput="saleSummary()"><small id="saleCreditBalance" class="muted"></small></label></div>
+ <p class="muted">Choose an account to link the purchase. Leave store credit at £0 to take the full payment separately.</p>
  <div id="saleSummary" role="status"></div><div class="modal-actions"><button class="btn secondary" onclick="closeModal()">Cancel</button><button id="saveSaleButton" class="btn primary" onclick="saveSale()">Save sale</button></div>`);
- renderSaleLines();saleChannelChanged();
+ renderSaleLines();saleCustomerChanged();saleChannelChanged();
+};
+window.saleCustomerChanged=()=>{
+ const customer=state.customers.find(c=>c.id===Number($('#saleCustomer').value));
+ $('#saleCredit').value='0';
+ $('#saleCredit').disabled=!customer||customer.credit<=0;
+ $('#saleCreditBalance').textContent=customer?money(customer.credit)+' available':'Select an account to use store credit.';
+ saleSummary();
 };
 function saleInput(){return {lines:saleBasket,channel:$('#saleChannel').value,discountType:$('#saleDiscountType').value,discount:$('#saleDiscount').value,feeType:$('#feeType').value,feeValue:$('#feeValue').value,customerId:Number($('#saleCustomer').value)||null,credit:$('#saleCredit').value};}
 function renderSaleLines(){
@@ -1156,7 +1204,7 @@ window.saveSale=()=>{
  try{const next=RetroCheckout.complete(state,saleInput(),saleTransactionId,today()),previous={items:state.items,customers:state.customers,transactions:state.transactions};
  Object.assign(state,{items:next.items,customers:next.customers,transactions:next.transactions});
  if(!persistState()){Object.assign(state,previous);backdrop.classList.add('hidden');return;}
- saleTransactionId=null;closeModal();go('sales');
+ saleTransactionId=null;closeModal();if(state.view==='customerDetail')render();else go('sales');
  }catch(e){if($('#saleSummary'))$('#saleSummary').textContent=e.message;}finally{savingSale=false;}
 };
 window.setReportPeriod=p=>{if(!['today','7','30','all'].includes(p))return;state.reportPeriod=p;render();};
