@@ -117,14 +117,23 @@ def overview(category,token_fn):
         'filter':'itemLocationCountry:GB,deliveryCountry:GB,buyingOptions:{FIXED_PRICE}'},token_fn)
     if active.get('ok'):
         prices={}
+        listings=[]
         for item in active['data'].get('itemSummaries',[])[:50]:
             price=item.get('price') or {}
             value=amount(price.get('value'))
             identity=re.fullmatch(r'v1\|([0-9]{6,20})\|[0-9]{1,20}',str(item.get('itemId','')))
             if identity and price.get('currency')=='GBP' and value and 'FIXED_PRICE' in item.get('buyingOptions',[]):
-                prices.setdefault(identity.group(1),value)
+                listing_id=identity.group(1)
+                if listing_id in prices:
+                    continue
+                prices[listing_id]=value
+                url=safe_listing_url(item.get('itemWebUrl'),item.get('itemId'))
+                if url and len(listings)<10:
+                    listings.append({'title':str(item.get('title') or 'Listing')[:250],
+                                     'condition':str(item.get('condition') or '')[:100],
+                                     'url':url,'value':value})
         values=sorted(prices.values())
-        active={'ok':True,'checkedAt':now,'count':len(values),'currency':'GBP','median':None,'lower':None,'upper':None}
+        active={'ok':True,'checkedAt':now,'count':len(values),'currency':'GBP','median':None,'lower':None,'upper':None,'listings':listings}
         if len(values)>=8:
             middle=len(values)//2
             active.update(median=round(statistics.median(values),2),

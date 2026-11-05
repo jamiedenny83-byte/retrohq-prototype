@@ -12,7 +12,7 @@ function* csvRows(text){let row=[],field='',quoted=false,closed=false;
  }if(quoted)throw Error('Unclosed CSV quotation.');
 }
 const price=v=>{const t=String(v??'').trim().replace(/^\$/,'');if(!t)return null;if(!/^(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.\d{1,2})?$/.test(t))return null;const n=Number(t.replace(/,/g,''));return Number.isFinite(n)&&n>=0?Math.round(n*100)/100:null;};
-function guide(text,date,now=new Date().toISOString()){
+function guide(text,date,now=new Date().toISOString(),onRow){
  if(typeof text!=='string'||text.length>80*1024*1024)throw Error('Choose a PriceCharting guide smaller than 80 MB.');
  if(!/^\d{4}-\d{2}-\d{2}$/.test(date)||!Number.isFinite(Date.parse(date))||new Date(date).toISOString().slice(0,10)!==date||date>now.slice(0,10))throw Error('Choose the actual guide date, not a future date.');
  const iterator=csvRows(text.replace(/^\uFEFF/,'')),first=iterator.next();if(first.done)throw Error('Empty price guide.');const columns=first.value.map(x=>x.trim().toLowerCase()),at=k=>columns.indexOf(k);
@@ -29,18 +29,73 @@ function guide(text,date,now=new Date().toISOString()){
   const raw=field('sales-volume'),volume=/^\d+$/.test(raw)&&Number.isSafeInteger(Number(raw))?Number(raw):null;
   const row={id,title,platform,category,volume,prices:Object.fromEntries(['loose','cib','new'].map(k=>[k,price(field(k+'-price'))]))};
   if(volume===null)stats.missingVolume++;stats.eligible++;for(const key of ['all',category,'platform:'+platform])add(key,row);
+  onRow?.(row);
  }
  if(!stats.eligible)throw Error('No supported game/console/accessory records in this guide.');
  for(const g of Object.values(groups)){for(const grade of ['loose','cib','new']){const a=g.samples[grade].sort((a,b)=>a-b),n=a.length;g.median[grade]=n?(n%2?a[(n-1)/2]:(a[n/2-1]+a[n/2])/2):null;}delete g.samples;}
  const result={source:'PriceCharting CSV',currency:'USD',date,importedAt:now,stats,groups};validate({version:1,feeds:{},guide:result});return result;
 }
+const grades=['loose','cib','new'];
+const categories=['games','consoles','accessories'];
+const day=86400000;
+function compareGuides(older,from,newer,to,now=new Date().toISOString()){
+ if(from>=to)throw Error('Choose an older guide date and a later guide date.');
+ const baselines=new Map();
+ guide(older,from,now,row=>baselines.set(row.id,row));
+ const groups={};
+ function add(rows,row,direction){
+  rows.push(row);
+  rows.sort((a,b)=>direction*(b.change-a.change)||a.id.localeCompare(b.id));
+  if(rows.length>10)rows.pop();
+ }
+ const current=guide(newer,to,now,row=>{
+  const base=baselines.get(row.id);
+  if(!base||base.category!==row.category||base.platform!==row.platform) return;
+  for(const grade of grades){
+   const previous=base.prices[grade],value=row.prices[grade];
+   if(!(previous>0&&value>0))continue;
+   const key=row.category+':'+grade;
+   const group=groups[key]||(groups[key]={matched:0,rising:[],falling:[],watch:[]});
+   group.matched++;
+   const change=(value/previous-1)*100;
+   if(!Number.isFinite(change)||change===0)continue;
+   const entry={id:row.id,title:row.title,platform:row.platform,volume:row.volume,previous,value,change};
+   add(change>0?group.rising:group.falling,entry,change>0?1:-1);
+   if(change>0&&row.volume>=20)add(group.watch,entry,1);
+  }
+ });
+ return {current,movement:{from,to,days:(Date.parse(to)-Date.parse(from))/day,groups}};
+}
+function validateMovement(movement){
+ const {from,to,days,groups}=movement;
+ if(!/^\d{4}-\d{2}-\d{2}$/.test(from)||!/^\d{4}-\d{2}-\d{2}$/.test(to)||!Number.isInteger(days)||days<1||(Date.parse(to)-Date.parse(from))/day!==days
+    ||!groups||typeof groups!=='object'||Array.isArray(groups))throw Error('Invalid market comparison dates.');
+ for(const [key,group] of Object.entries(groups)){
+  if(!categories.flatMap(category=>grades.map(grade=>category+':'+grade)).includes(key)
+     ||!Number.isSafeInteger(group?.matched)||group.matched<1||group.matched>250000)throw Error('Invalid market comparison coverage.');
+  for(const kind of ['rising','falling','watch']){
+   const rows=group[kind];
+   if(!Array.isArray(rows)||rows.length>Math.min(10,group.matched))throw Error('Invalid market ranking.');
+   for(const row of rows){
+    if(!/^\d{1,16}$/.test(row?.id)||typeof row.title!=='string'||row.title.length>250||typeof row.platform!=='string'||row.platform.length>100
+      ||!(Number.isFinite(row.previous)&&row.previous>0&&Number.isFinite(row.value)&&row.value>0&&Number.isFinite(row.change))
+      ||(kind==='falling'?row.change>=0:row.change<=0)||(kind==='watch'&&!(Number.isSafeInteger(row.volume)&&row.volume>=20)))throw Error('Invalid ranked price movement.');
+   }
+  }
+ }
+}
 function apply(state,feed){if(!feed?.ok||!['games','consoles','toys'].includes(feed.category)||feed.marketplace!=='EBAY_GB')throw Error('Invalid category market feed.');const next=clone(state),market=next.marketOverview||(next.marketOverview={version:1,feeds:{}}),before=market.feeds[feed.category]||{};
- const saved={label:feed.label,checkedAt:feed.checkedAt};for(const key of ['best','active','high'])if(feed[key])saved[key]=feed[key].ok?clone(feed[key]):{...(before[key]||{}),error:feed[key]?.status||'Unavailable',detail:feed[key]?.detail||''};market.feeds[feed.category]=saved;return next;}
+ const saved={label:feed.label,checkedAt:feed.checkedAt};for(const key of ['best','active','high'])if(feed[key])saved[key]=feed[key].ok?clone(feed[key]):{...(before[key]||{}),error:feed[key]?.status||'Unavailable',detail:feed[key]?.detail||''};market.feeds[feed.category]=saved;validate(market);return next;}
 function validate(value){if(!value||value.version!==1||!value.feeds||typeof value.feeds!=='object'||Array.isArray(value.feeds))throw Error('Invalid market overview.');
  for(const [category,f]of Object.entries(value.feeds)){if(!['games','consoles','toys'].includes(category)||!f||typeof f!=='object')throw Error('Invalid category market data.');const sample=f.active;if(sample?.ok){const {median,lower,upper,count}=sample;if(sample.currency!=='GBP'||!Number.isInteger(count)||count<0||count>50||(count<8?[median,lower,upper].some(n=>n!==null):![lower,median,upper].every(n=>Number.isFinite(n)&&n>0)||lower>median||median>upper))throw Error('Invalid active listing sample.');}if((f.best?.products||[]).length>10||(f.high?.items||[]).length>10)throw Error('Too many category market records.');for(const row of f.best?.products||[])if(!/^\d{1,30}$/.test(row.epid)||typeof row.title!=='string')throw Error('Invalid best-selling product.');for(const row of f.high?.items||[])if(!safeUrl(row.url)||!Number.isFinite(row.value)||row.value<0||row.currency!=='GBP')throw Error('Invalid market listing.');}
  if(value.guide){const g=value.guide;if(g.source!=='PriceCharting CSV'||g.currency!=='USD'||!g.stats||!Number.isSafeInteger(g.stats.eligible)||!g.groups||Object.keys(g.groups).length>85)throw Error('Invalid price guide.');for(const k of ['rows','eligible','excluded','duplicates','missingVolume'])if(!Number.isSafeInteger(g.stats[k])||g.stats[k]<0)throw Error('Invalid guide coverage.');if(g.stats.rows!==g.stats.eligible+g.stats.excluded+g.stats.duplicates||g.stats.missingVolume>g.stats.eligible)throw Error('Guide coverage totals do not agree.');for(const group of Object.values(g.groups)){if(!Number.isSafeInteger(group.count)||group.count<0||group.count>g.stats.eligible||!Number.isSafeInteger(group.volumeKnown)||group.volumeKnown>group.count||!Number.isSafeInteger(group.annualUnits)||group.annualUnits<0)throw Error('Invalid guide totals.');for(const rows of [group.volume,...Object.values(group.value||{})]){if(!Array.isArray(rows)||rows.length>10)throw Error('Invalid guide ranking.');for(const row of rows){if(!/^\d{1,16}$/.test(row.id)||typeof row.title!=='string'||typeof row.platform!=='string'||row.volume!==null&&(!Number.isSafeInteger(row.volume)||row.volume<0))throw Error('Invalid guide item.');for(const n of Object.values(row.prices||{}))if(n!==null&&(!Number.isFinite(n)||n<0))throw Error('Invalid guide value.');}}}}
+ if(value.movement)validateMovement(value.movement);
+ for(const {active} of Object.values(value.feeds)){
+  if(active?.listings===undefined)continue;
+  if(!Array.isArray(active.listings)||active.listings.length>10||active.listings.some(row=>!safeUrl(row?.url)||!Number.isFinite(row.value)||row.value<=0||typeof row.title!=='string'||row.title.length>250||typeof row.condition!=='string'||row.condition.length>100))throw Error('Invalid category listing sample.');
+ }
  return value;
 }
 function safeUrl(value){return typeof value==='string'&&/^https:\/\/(?:www\.)?ebay\.co\.uk\/itm\/[a-zA-Z0-9/?&=._%+|\-]+$/.test(value);}
-const api={csvRows,price,guide,apply,validate,safeUrl};if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.RetroOverview=api;
+const api={csvRows,price,guide,compareGuides,apply,validate,safeUrl};if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.RetroOverview=api;
 })(typeof globalThis!=='undefined'?globalThis:this);

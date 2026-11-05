@@ -63,7 +63,8 @@ class OverviewTests(unittest.TestCase):
             if scope==M.MARKETING_SCOPE:return {'ok':False,'status':'eBay market authentication HTTP 400','detail':'private upstream detail'}
             return self.auth()
         prices=[5,10,15,20,25,30,35,200086.70]
-        rows=[{'itemId':f'v1|{123456780+n}|0','price':{'value':str(value),'currency':'GBP'},'buyingOptions':['FIXED_PRICE']} for n,value in enumerate(prices)]
+        rows=[{'itemId':f'v1|{123456780+n}|0','title':f'Game {n+1}','itemWebUrl':f'https://www.ebay.co.uk/itm/{123456780+n}',
+               'price':{'value':str(value),'currency':'GBP'},'buyingOptions':['FIXED_PRICE']} for n,value in enumerate(prices)]
         rows.append({**rows[-1],'itemId':'v1|123456787|99'})
         with patch.object(M,'urlopen',return_value=Reply({'itemSummaries':rows})) as browse:
             data=M.overview('games',auth)
@@ -73,6 +74,8 @@ class OverviewTests(unittest.TestCase):
         self.assertNotIn('private upstream detail',str(data))
         active=data['active']
         self.assertEqual((active['count'],active['lower'],active['median'],active['upper']),(8,12.5,22.5,32.5))
+        self.assertEqual([row['title'] for row in active['listings'][:2]],['Game 1','Game 2'])
+        self.assertEqual(active['listings'][0]['value'],5)
         self.assertNotIn('high',data)
     def test_missing_marketing_approval_is_visible_not_a_fake_best_seller_list(self):
         with patch.object(M,'urlopen',side_effect=HTTPError('url',403,'private-body',{},None)):
