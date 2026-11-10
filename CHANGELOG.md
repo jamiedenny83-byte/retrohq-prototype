@@ -1,5 +1,15 @@
 # RetroHQ Changelog
 
+## Test 8.4 — Read-only eBay sales import
+
+- Added reviewed SKU/listing-to-stock allocation, multi-unit sales and persistent duplicate protection.
+- Added unmatched/change-review queues, physical stock restoration and actual-cost confirmation.
+- Preserved Sandbox OAuth, CeX adapters, original buy/processing costs and Area/Shelf.
+- Added browser persistence with exclusive-tab protection and private backup export.
+- Added regression coverage and repository handover/decision/work logs.
+- Branch stays `retrohq-test-8.3`; `current` rename deferred pending Codespace/PR transition. Both 8.3 rollback references retained.
+- See `docs/TEST_8_4_NOTES.md` for limitations and required live acceptance; no production seller access or eBay listing writes.
+
 ## Test 8.2 — Daily Operations + Market Expansion
 
 - Created the daily-operations test branch from Test 8.1.

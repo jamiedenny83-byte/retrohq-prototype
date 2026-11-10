@@ -1,0 +1,33 @@
+const {test}=require('node:test'),assert=require('node:assert/strict'),L=require('../live-inventory'),B=require('../workspace-backup'),D=require('../demo-sales');
+const line=(x={})=>({orderId:'O1',lineItemId:'L1',listingId:'123',sku:'RED',eligible:true,paymentStatus:'PAID',cancelState:'NONE',refundDetected:false,currency:'GBP',quantity:1,price:30,date:'2026-10-23',createdAt:'2026-10-23T13:00:00Z',orderFee:2,orderShipping:3,orderLineCount:1,fulfillmentStatus:'NOT_STARTED',...x});
+const snap=(orders=[line()],x={})=>({ok:true,environment:'production',checkedAt:'2026-10-23T12:00:00Z',listings:[{listingId:'123',sku:'RED',title:'Game',quantity:1,price:30,currency:'GBP'}],orders,...x});
+const seed=()=>D.seed({settings:{offerPct:45,storeCreditBonus:15,greenMargin:45,yellowMargin:30,fees:{eBay:{type:'percent',value:12.8}}}});
+function linked(){return L.link(L.reconcile(seed(),snap([])),'123','RED',[1]);}
+test('manager-removed linked stock stays out of checkout, eBay reimport and stock review until restored',()=>{
+ const items=require('../item-management'),checkout=require('../checkout'),sales=require('../sales-sync'),sync=require('../stock-sync');
+ const state=linked(),previous=state.items[0],now='2026-10-24T12:00:00Z';
+ state.items[0]=items.changeStockRemoval(previous,true,'Duplicate physical entry',now);
+ assert.equal(checkout.available(state.items[0]),false);
+ assert.equal(sales.available(state.items[0]),false);
+ assert.equal(L.available(state.items[0]),false);
+ const later=snap([line({date:'2026-10-24',createdAt:'2026-10-24T11:00:00Z'})],{checkedAt:now,listings:[{...snap().listings[0],quantity:2}]});
+ const after=L.reconcile(state,later);
+ assert.equal(after.items.length,state.items.length);
+ assert.equal(after.liveEbay.ledger.length,0);
+ assert.equal(after.items[0].liveListingId,previous.liveListingId);
+ assert.equal(sync.rows(sync.begin(after,later)).some(row=>row.kind==='listing'),false);
+ assert.deepEqual(B.parse(B.pack(after,'demo'),'demo').state.items[0].stockRemoval,state.items[0].stockRemoval);
+ const restored=items.changeStockRemoval(after.items[0],false,'Physical copy verified',now);
+ assert.equal(checkout.available(restored),true);
+ assert.equal(restored.buy,previous.buy);
+ assert.equal(restored.timeline.at(-1)[0],'Restored to stock by manager');
+ assert.throws(()=>items.changeStockRemoval({...previous,status:'Completed'},true,'Incorrect stock',now));
+});
+test('linked production import is atomic, idempotent and isolated from Sandbox',()=>{const s=linked(),before=JSON.stringify(s),n=L.reconcile(s,snap());assert.equal(JSON.stringify(s),before);assert.equal(n.items[0].sale.price,30);assert.equal(n.items[0].buy,s.items[0].buy);assert.equal(n.items[0].sale.costsConfirmed,false);assert.equal(n.items[0].sale.externalKey,undefined);assert.deepEqual(L.reconcile(n,snap()),n);assert.deepEqual(B.parse(B.pack(n,'demo'),'demo').state,n);});
+test('variation ambiguity, conflicting relinks, partial snapshots and unpaid lines never sell stock',()=>{for(const orders of [[line({sku:''})],[line({sku:'BLUE'})],[line({paymentStatus:'PENDING'})],[line({refundDetected:true})]])assert.equal(L.reconcile(linked(),snap(orders)).items[0].sale,null);assert.throws(()=>L.link(linked(),'123','BLUE',[1]));assert.equal(L.reconcile(linked(),snap([line()],{orderTruncated:true})).items[0].sale,null);assert.equal(L.reconcile(seed(),snap()).items[0].sale,null);});
+test('sold listing can be matched explicitly with penny allocation; over-allocation blocked',()=>{let s=L.reconcile(seed(),snap([line({quantity:2,price:30.01})],{listings:[],orderTruncated:true}));assert.throws(()=>L.apply(s,L.key(line()),[1]));s=L.apply(s,L.key(line()),[1,2]);assert.equal(Math.round(s.items[0].sale.price*100)+Math.round(s.items[1].sale.price*100),3001);assert.throws(()=>L.apply(s,L.key(line()),[3,4]));});
+test('refund review does not restore stock; explicit full return preserves ledger across resync and backup',()=>{let s=L.reconcile(linked(),snap());s=L.reconcile(s,snap([line({refundDetected:true})]));assert.equal(s.items[0].status,'Sold');assert.equal(s.items[0].sale.reviewNeeded,true);assert.throws(()=>L.acceptChange(s,L.key(line())));s=L.restore(s,L.key(line()));assert.equal(s.items[0].status,'Needs repair');assert.equal(s.items[0].sale,null);assert.equal(L.reconcile(s,snap()).items[0].sale,null);assert.deepEqual(B.parse(B.pack(s,'demo'),'demo').state,s);});
+test('changed revenue needs acceptance and actual costs again; quantity changes cannot be accepted',()=>{let s=L.reconcile(linked(),snap());s.items[0].sale.costsConfirmed=true;s=L.reconcile(s,snap([line({price:32})]));assert.equal(s.items[0].sale.price,30);s=L.acceptChange(s,L.key(line()));assert.equal(s.items[0].sale.price,32);assert.equal(s.items[0].sale.costsConfirmed,false);s=L.reconcile(s,snap([line({quantity:2,price:32})]));assert.throws(()=>L.acceptChange(s,L.key(line())));});
+test('malformed snapshot and both directions of ledger corruption are rejected',()=>{const s=L.reconcile(linked(),snap());for(const mutate of [x=>delete x.liveEbay,x=>x.liveEbay.listings=[null],x=>x.liveEbay.orders=[{}],x=>x.items[0].sale.price=999,x=>x.liveEbay.ledger[0].imported.eligible=false,x=>x.liveEbay.ledger[0].itemIds.push(1),x=>x.liveEbay.ledger[0].itemIds=[2],x=>x.items[0].sale=null,x=>x.liveEbay.ledger.push(x.liveEbay.ledger[0])]){const n=structuredClone(s);mutate(n);assert.throws(()=>B.validate(n));}assert.throws(()=>L.reconcile(s,null));assert.throws(()=>L.reconcile(s,snap([line(),line()])));assert.throws(()=>L.reconcile(s,snap([],{listings:[{}]})));});
+test('external titles remain text and survive backup while stock markup remains forbidden',()=>{let s=L.reconcile(seed(),snap([],{listings:[{...snap().listings[0],title:'A "quoted" <game>'}]}));assert.deepEqual(B.parse(B.pack(s,'demo'),'demo').state,s);s.items[0].title='<script>';assert.throws(()=>B.validate(s));});
+

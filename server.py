@@ -1,9 +1,15 @@
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
-from urllib.parse import urlparse, parse_qs, urlencode, quote
+from urllib.parse import urlparse, parse_qs, urlencode, quote, unquote
 from urllib.request import Request, urlopen
 from urllib.error import HTTPError, URLError
 from pathlib import Path
-import json, os, time, threading, re, base64, statistics
+import json, os, time, threading, re, base64, statistics, hashlib
+import ebay_live
+import ebay_seller
+import item_identification
+import market_insights
+import market_overview
+import trade_manager
 
 ROOT = Path(__file__).resolve().parent
 PC_PRODUCT = "https://www.pricecharting.com/api/product"
@@ -14,25 +20,60 @@ _pc_last_call = 0.0
 CEX_SEARCH = "https://search.webuy.io/1/indexes/*/queries"
 _cex_lock = threading.Lock()
 _cex_last_call = 0.0
+_cex_health = {"checked": False, "ok": False, "status": "Not tested"}
 
 # eBay Browse API — UK active-listing evidence.
 # Secrets stay server-side in Codespaces/environment variables.
-_ebay_token_cache = {"token": None, "expires": 0}
+_ebay_token_cache = {"token": None, "expires": 0, "client": None, "environment": None}
+_ebay_marketing_token_cache = {}
 
 def _ebay_base():
     return "https://api.sandbox.ebay.com" if os.environ.get("EBAY_ENV","production").lower()=="sandbox" else "https://api.ebay.com"
 
-def ebay_access_token():
-    client_id=os.environ.get("EBAY_CLIENT_ID","").strip()
-    client_secret=os.environ.get("EBAY_CLIENT_SECRET","").strip()
-    if not client_id or not client_secret:
-        return {"ok":False,"status":"Credentials not loaded","detail":"Set EBAY_CLIENT_ID and EBAY_CLIENT_SECRET in the server environment."}
+def _ebay_market_credentials():
+    """Production Browse credentials are independent of Sandbox Seller OAuth."""
+    live_id = os.environ.get("EBAY_MARKET_CLIENT_ID", "").strip()
+    live_secret = os.environ.get("EBAY_MARKET_CLIENT_SECRET", "").strip()
+    if bool(live_id) != bool(live_secret):
+        return {"ok":False,"status":"eBay UK market credentials incomplete",
+                "detail":"Set both EBAY_MARKET_CLIENT_ID and EBAY_MARKET_CLIENT_SECRET for production UK market data."}
+    if live_id and live_secret:
+        return {"ok":True,"client":live_id,"secret":live_secret,
+                "base":"https://api.ebay.com","environment":"production","source":"EBAY_MARKET"}
+    seller_id=os.environ.get('EBAY_LIVE_CLIENT_ID','').strip()
+    seller_secret=os.environ.get('EBAY_LIVE_CLIENT_SECRET','').strip()
+    if bool(seller_id)!=bool(seller_secret):
+        return {'ok':False,'status':'Production application keys incomplete',
+                'detail':'Set both EBAY_LIVE_CLIENT_ID and EBAY_LIVE_CLIENT_SECRET, or a complete separate EBAY_MARKET key pair, then restart the server.'}
+    if seller_id and seller_secret:
+        return {'ok':True,'client':seller_id,'secret':seller_secret,'base':'https://api.ebay.com',
+                'environment':'production','source':'EBAY_LIVE'}
+    client = os.environ.get("EBAY_CLIENT_ID","").strip()
+    secret = os.environ.get("EBAY_CLIENT_SECRET","").strip()
+    if not client or not secret:
+        return {"ok":False,"status":"Credentials not loaded",
+                "detail":"Set eBay application credentials in the server environment."}
+    return {"ok":True,"client":client,"secret":secret,"base":_ebay_base(),
+            "environment":os.environ.get("EBAY_ENV","production").lower(),"source":"EBAY"}
+
+def ebay_access_token(scope="https://api.ebay.com/oauth/api_scope"):
+    if scope not in ("https://api.ebay.com/oauth/api_scope","https://api.ebay.com/oauth/api_scope/buy.marketing"):
+        return {"ok":False,"status":"Unsupported application scope"}
+    cache = _ebay_token_cache if scope.endswith("api_scope") else _ebay_marketing_token_cache
+    config = _ebay_market_credentials()
+    if not config.get("ok"): return config
     now=time.time()
-    if _ebay_token_cache.get("token") and now < _ebay_token_cache.get("expires",0)-60:
-        return {"ok":True,"token":_ebay_token_cache["token"]}
-    basic=base64.b64encode(f"{client_id}:{client_secret}".encode()).decode()
-    body=urlencode({"grant_type":"client_credentials","scope":"https://api.ebay.com/oauth/api_scope"}).encode()
-    req=Request(_ebay_base()+"/identity/v1/oauth2/token",data=body,headers={
+    signature=hashlib.sha256((config['client']+'\0'+config['secret']+'\0'+config['environment']+'\0'+scope).encode()).hexdigest()
+    if (cache.get("token") and
+        cache.get("client")==config["client"] and
+        cache.get("environment")==config["environment"] and
+        cache.get('signature')==signature and
+        now < cache.get("expires",0)-60):
+        return {"ok":True,"token":cache["token"],"base":config["base"],
+                "environment":config["environment"]}
+    basic=base64.b64encode(f"{config['client']}:{config['secret']}".encode()).decode()
+    body=urlencode({"grant_type":"client_credentials","scope":scope}).encode()
+    req=Request(config["base"]+"/identity/v1/oauth2/token",data=body,headers={
         "Authorization":"Basic "+basic,
         "Content-Type":"application/x-www-form-urlencoded"
     },method="POST")
@@ -41,25 +82,30 @@ def ebay_access_token():
             data=json.loads(r.read().decode())
         token=data.get("access_token")
         if not token: return {"ok":False,"status":"OAuth error","detail":"eBay did not return an application access token."}
-        _ebay_token_cache.update(token=token,expires=now+int(data.get("expires_in",7200)))
-        return {"ok":True,"token":token}
+        cache.update(token=token,expires=now+int(data.get("expires_in",7200)),
+                                 client=config["client"],environment=config["environment"],signature=signature)
+        return {"ok":True,"token":token,"base":config["base"],"environment":config["environment"]}
     except HTTPError as e:
-        detail=e.read().decode(errors="ignore")[:500]
-        return {"ok":False,"status":f"eBay OAuth HTTP {e.code}","detail":detail}
+        # Avoid reflecting credential-bearing provider responses.
+        source=config.get('source','EBAY')
+        detail=('Market search could not authenticate '+source+'_CLIENT_ID / '+source+'_CLIENT_SECRET for '+config['environment']+
+                '. Check that App ID and Cert ID are a matching key pair for that environment, update the Codespaces secrets and restart the server. '
+                'The seller-account connection is separate; do not reconnect it to fix this market-search error.') if e.code==401 else 'eBay refused the market application token request. Check application access in the developer portal.'
+        return {"ok":False,"status":f"eBay market authentication HTTP {e.code}","detail":detail}
     except Exception as e:
-        return {"ok":False,"status":"eBay OAuth unavailable","detail":str(e)}
+        return {"ok":False,"status":"eBay OAuth unavailable","detail":type(e).__name__}
 
-def ebay_browse_search(query, limit=12):
-    if not (query or "").strip():
+def ebay_browse_search(query, limit=12, *, gtin=None):
+    if not gtin and not (query or "").strip():
         return {"ok":False,"status":"No query","detail":"Enter an item to search eBay UK."}
     auth=ebay_access_token()
     if not auth.get("ok"): return auth
     params=urlencode({
-        "q":query.strip(),
+        ("gtin" if gtin else "q"):gtin or query.strip(),
         "limit":max(1,min(int(limit),20)),
         "filter":"itemLocationCountry:GB"
     })
-    req=Request(_ebay_base()+"/buy/browse/v1/item_summary/search?"+params,headers={
+    req=Request(auth["base"]+"/buy/browse/v1/item_summary/search?"+params,headers={
         "Authorization":"Bearer "+auth["token"],
         "X-EBAY-C-MARKETPLACE-ID":"EBAY_GB",
         "Accept":"application/json"
@@ -77,19 +123,81 @@ def ebay_browse_search(query, limit=12):
             items.append({
                 "itemId":x.get("itemId"),"title":x.get("title"),"price":value,"currency":currency,
                 "condition":x.get("condition"),"buyingOptions":x.get("buyingOptions",[]),
-                "itemWebUrl":x.get("itemWebUrl"),"seller":(x.get("seller") or {}).get("username")
+                "shipping":browse_shipping(x),"checkedAt":__import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
+                "itemWebUrl":market_overview.safe_listing_url(x.get("itemWebUrl"),x.get("itemId")),"seller":(x.get("seller") or {}).get("username")
             })
         return {
-            "ok":True,"status":"Live","marketplace":"EBAY_GB","count":len(items),
+            "ok":True,"status":"Live","marketplace":"EBAY_GB","environment":auth["environment"],"count":len(items),
             "total":data.get("total"),"items":items,
             "medianAsking":round(statistics.median(prices),2) if prices else None,
             "lowAsking":min(prices) if prices else None,"highAsking":max(prices) if prices else None
         }
     except HTTPError as e:
-        detail=e.read().decode(errors="ignore")[:700]
-        return {"ok":False,"status":f"eBay Browse HTTP {e.code}","detail":detail}
+        return {"ok":False,"status":f"eBay Browse HTTP {e.code}","detail":"Production Browse access may require eBay approval. Check application permissions in the developer portal."}
     except Exception as e:
         return {"ok":False,"status":"eBay Browse unavailable","detail":str(e)}
+
+
+def ebay_market_evidence(q):
+    ebay = ebay_browse_search(q, 12)
+    if ebay.get("ok"):
+        ebay_is_sandbox = ebay.get("environment", os.environ.get("EBAY_ENV","production").lower()) == "sandbox"
+        return [{"provider":"eBay UK","status":"Sandbox only" if ebay_is_sandbox else "Live","currency":"GBP","marketplace":"EBAY_GB",
+            "count":ebay.get("count"),"total":ebay.get("total"),"medianAsking":ebay.get("medianAsking"),
+            "lowAsking":ebay.get("lowAsking"),"highAsking":ebay.get("highAsking"),
+            "items":ebay.get("items",[])[:6],
+            "detail":("eBay Sandbox contains test listings, not real UK market prices." if ebay_is_sandbox else
+                      f"Live UK active listings: {ebay.get('count',0)} sampled. Median asking £{ebay.get('medianAsking'):.2f}." if ebay.get("medianAsking") is not None else "No live UK asking prices found in this search.")}]
+    return [{"provider":"eBay UK","status":ebay.get("status","Unavailable"),"detail":ebay.get("detail","")}]
+
+def browse_shipping(item):
+    # Unknown/calculated postage remains unknown; never substitute zero.
+    amounts=[]
+    for option in item.get("shippingOptions") or []:
+        cost=option.get("shippingCost") or {}
+        value=_num(cost.get("value"))
+        if cost.get("currency")=="GBP" and value is not None and value>=0:
+            amounts.append(value)
+    return min(amounts) if amounts else None
+
+
+def opportunity_cex(query, product_id=None):
+    from datetime import datetime, timezone
+    if not query or len(query)>180 or (product_id and len(product_id)>80):
+        return {"ok":False,"status":"Enter an exact product / platform query."}
+    if product_id:
+        detail=cex_detail(product_id)
+        if not detail:return {"ok":False,"status":"CeX record unavailable."}
+        prices=_cex_prices(detail)
+        cash=prices.get("cash") if prices.get("cashSource") in ("cex-listed","cex-calculated") else None
+        retail=prices.get("retail")
+        return {"ok":cash is not None or retail is not None,"status":"CeX record checked" if cash is not None or retail is not None else "CeX prices unavailable",
+                "productId":str(_first(detail,"boxId","box_id","objectID","id") or product_id),
+                "product":str(_first(detail,"boxName","name","title","productName") or ""),
+                "cash":cash,"cashSource":prices.get("cashSource"),"retail":retail,"retailVerified":retail is not None,
+                "category":_cex_category_text(detail),"verified":cash is not None,
+                "checkedAt":datetime.now(timezone.utc).isoformat()}
+    # This is a catalogue chooser, not an automatic identity match. Return the
+    # actual candidates across games/hardware/accessories for explicit review.
+    global _cex_last_call
+    payload=json.dumps({"requests":[{"indexName":"prod_cex_uk","params":urlencode({"query":query,"hitsPerPage":20})}]}).encode()
+    request=Request(CEX_SEARCH,data=payload,headers={"Content-Type":"application/json","User-Agent":"RetroHQ-Internal-PoC/0.8.1 (+internal testing)"},method="POST")
+    with _cex_lock:
+        wait=1.05-(time.monotonic()-_cex_last_call)
+        if wait>0:time.sleep(wait)
+        try:
+            with urlopen(request,timeout=12) as response:
+                raw=response.read(4_000_001)
+            if len(raw)>4_000_000:raise ValueError("Response too large")
+            data=json.loads(raw)
+        finally:_cex_last_call=time.monotonic()
+    variants=[]
+    for hit in ((data.get("results") or [{}])[0].get("hits") or []):
+        product_id=_first(hit,"boxId","box_id","objectID","id")
+        if product_id:variants.append({"productId":str(product_id),"product":str(_first(hit,"boxName","name","title","productName") or ""),"category":_cex_category_text(hit),"grade":cex_grade_from_title(str(_first(hit,"boxName","name") or ""))})
+    return {"ok":bool(variants),"candidates":variants,"status":"Choose the exact CeX record" if variants else "No CeX catalogue candidates"}
+
+
 
 def _first(d, *keys):
     for k in keys:
@@ -137,13 +245,37 @@ def identity_attributes(text):
             if re.search(r"\b"+re.escape(v)+r"\b", t): attrs["colour"]=v; break
     return attrs
 
+def confirmed_market_intent(query, pc, intent):
+    """The chosen catalogue edition, not an abbreviated search, locks the platform."""
+    if not pc.get("ok"): return intent
+    if is_hardware_candidate({'product-name':pc.get('product')}):
+        derived=infer_intent(' '.join(str(pc.get(k) or '') for k in ('product','console')))
+        return derived if derived.get('platform') else intent
+    platforms=_cex_platforms(pc.get('console'))
+    if len(platforms)!=1 and platforms!={'Xbox One','Xbox Series X'}: return intent
+    platform=next(iter(platforms)) if len(platforms)==1 else 'Xbox One / Series X'
+    return {**intent,'type':'software','platform':platform,'label':platform,
+            'gameTitle':pc.get('product'),'ambiguous':False,'providerQueries':[],
+            'allowedConsoleTerms':[],'excludeConsoleTerms':[]}
+
+
 def canonical_identity(query, pc, intent):
+    intent=confirmed_market_intent(query,pc,intent)
     confirmed_attrs=identity_attributes(" ".join(x for x in (pc.get("product"),pc.get("console")) if x))
     query_attrs=identity_attributes(query); attrs=dict(confirmed_attrs)
     for k,v in query_attrs.items(): attrs.setdefault(k,v)
     return {"type":intent.get("type"),"family":intent.get("family"),"platform":intent.get("platform"),
             "label":intent.get("label"),"confirmedProduct":pc.get("product"),"confirmedConsole":pc.get("console"),
-            "pricechartingProductId":pc.get("id"),"attributes":attrs}
+            "pricechartingProductId":pc.get("id"),"attributes":{} if intent.get('type')=='software' else attrs}
+
+def cex_fallback_identity(query, intent):
+    """Use known hardware taxonomy without claiming PriceCharting confirmation."""
+    if intent.get("type") != "hardware" or not intent.get("platform"):
+        return None
+    return {"type": "hardware", "family": intent.get("family"),
+            "platform": intent.get("platform"), "label": intent.get("label"),
+            "attributes": identity_attributes(query), "source": "description"}
+
 
 def cex_grade_from_title(title):
     low=(title or "").lower()
@@ -179,16 +311,167 @@ def cex_identity_quality(title, identity):
         else: conflicts.append("colour")
     return matches,conflicts
 
+_PLATFORM_ALIASES = {
+    "PlayStation 1":("ps1","ps 1","psone","playstation 1"),
+    **{f"PlayStation {n}":(f"ps{n}",f"ps {n}",f"playstation {n}") for n in range(2,6)},
+    "Original Xbox":("original xbox","xbox original"),
+    "Xbox 360":("xbox 360",), "Xbox One":("xbox one",),
+    "Xbox Series X":("xbox series x",), "Xbox Series S":("xbox series s",),
+    "Game Boy Advance":("gameboy advance","game boy advance","gba"),
+    "Game Boy Color":("gameboy color","game boy color","gameboy colour","game boy colour","gbc"),
+    "Game Boy":("game boy","gameboy"), "GameCube":("gamecube","game cube"),
+    "Nintendo 64":("nintendo 64","n64","n 64"), "SNES":("super nintendo","super nes","snes"),
+    "NES":("nes","nintendo entertainment system"), "Dreamcast":("dreamcast",),
+    "Mega Drive":("mega drive","megadrive","genesis"), "Saturn":("saturn",),
+    "Nintendo Switch":("nintendo switch","switch"), "Wii U":("wii u",), "Wii":("wii",),
+    "Nintendo 3DS":("nintendo 3ds","3ds","3 ds"), "Nintendo DS":("nintendo ds","ds"),
+}
+
+
+def _platform_mentions(text):
+    words=" ".join(normalize_words(str(text or "")))
+    words=re.sub(r"\bplay station\b","playstation",words)
+    found=set()
+    aliases=sorted(((alias,platform) for platform,names in _PLATFORM_ALIASES.items()
+                    for alias in names),key=lambda entry:len(entry[0]),reverse=True)
+    for alias,platform in aliases:
+        # CeX also uses compact category slugs, e.g. playstation2-software.
+        pattern=r"\b"+r" *".join(map(re.escape,alias.split()))+r"\b"
+        words,count=re.subn(pattern," ",words)
+        if count: found.add(platform)
+    return found,words
+
+
+def _cex_platforms(text):
+    found,remainder=_platform_mentions(text)
+    if re.search(r"\bxbox smart delivery\b",remainder): found.update(("Xbox One","Xbox Series X"))
+    if re.search(r"\bxbox\b",remainder) and not any(x.startswith("Xbox") for x in found): found.add("Original Xbox")
+    if re.search(r"\bplaystation\b",remainder) and not any(x.startswith("PlayStation") for x in found): found.add("PlayStation 1")
+    return found
+
+
+def _cex_category_text(hit):
+    """Use category identifiers as well as display labels for safe platform matching."""
+    keys=("categoryName","categoryFriendlyName","category","categorySlug",
+          "categoryId","categoryID","superCatName")
+    return " ".join(str(hit[key]) for key in keys if hit.get(key) not in (None,""))
+
+
+def _cex_game_words(title):
+    """Normalise catalogue typography, retaining meaningful title/sequel words."""
+    text=str(title or "").lower().replace("’", "").replace("'", "").replace("&", " and ")
+    text=re.sub(r"\((?:3|7|12|15|16|18)\)", " ", text)
+    text=re.sub(r"\b(?:ps|playstation)\s*[2345]\b", " ", text)
+    words=normalize_words(text)
+    if words and words[0]=="the": words=words[1:]
+    if words and words[-1]=="the": words=words[:-1]
+    return words
+
+
+_RELEASE_YEAR = re.compile(r"\(((?:19|20)\d{2})\)")
+
+
+def _catalogue_game_title(title):
+    title = " ".join(_RELEASE_YEAR.sub(" ", title or "").split())
+    if re.fullmatch(r"(?:disney(?:['’]?s| s)?\s+)?aladdin", title, re.I):
+        return "Aladdin"
+    return title
+
+
+def _compatible_game_year(intent, title):
+    expected = intent.get("releaseYear")
+    if not expected:
+        named = _RELEASE_YEAR.search(intent.get("gameTitle") or "")
+        expected = named.group(1) if named else None
+    years = _RELEASE_YEAR.findall(title or "")
+    return not expected or not years or years == [expected]
+
+
+def _cex_match_words(title,platform=None):
+    """Remove only known catalogue packaging labels, keeping title/sequel words.
+
+    Full provider labels remain visible and must be explicitly selected. This
+    helper is deliberately NOT used by the automatic exact-match shortcut.
+    """
+    text,_=_game_contents(title)
+    suffix=r"(?:unboxed|boxed|mint|(?:w/|with|\+)\s*manual|(?:w/o|without|no)\s*manual)"
+    while re.search(r",\s*"+suffix+r"\s*$",text,re.I):
+        text=re.sub(r",\s*"+suffix+r"\s*$","",text,flags=re.I)
+    text=re.sub(r"\s*(?:,|\+)?\s*manual\s*$","",text,flags=re.I) if re.search(r"\)\s*\+\s*manual\s*$",text,re.I) else text
+    text=re.sub(r"\((?:standard blue dvd case|2 disc cardboard case|european packaging|bbfc uk|pegi uk)\)"," ",text,flags=re.I)
+    words=_cex_game_words(_catalogue_game_title(text))
+    if words[:2]==["disney","pixar"]:words=_cex_game_words(" ".join(words[2:]))
+    for alias in sorted(_PLATFORM_ALIASES.get(platform,()),key=len,reverse=True):
+        words=re.sub(r"\b"+re.escape(alias)+r"\b"," "," ".join(words)).split()
+    # Verified title alias; do not globally remove publisher names from games.
+    if words==['konami','krazy','racers']:words=['krazy','racers']
+    return words
+
+
+def _game_contents(title):
+    """Separate recognised bundle contents from the game's name."""
+    text=str(title or "")
+    pattern=r"(?:\s*\(\s*|\s+)(no|without|with|w/|\+)\s+(?:buzz\s+)?buzzers?\s*\)?$"
+    match=re.search(pattern,text,re.I)
+    if not match: return text,None
+    return text[:match.start()].strip(),("Without buzzers" if match[1].lower() in ("no","without") else "With buzzers")
+
+
+def cex_game_grade(title):
+    """CeX's game condition/completeness label; never inferred from shop condition."""
+    text=str(title or "")
+    _,contents=_game_contents(text)
+    if contents:return contents
+    if re.search(r",\s*mint\s*$",text,re.I):return "Mint"
+    if re.search(r",\s*unboxed\s*$",text,re.I):return "Unboxed"
+    if re.search(r",\s*boxed\s*$",text,re.I):
+        if re.search(r"(?:w/o|without|no)\s*manual",text,re.I):return "Boxed - without manual"
+        if re.search(r"(?:w/|with|\+)\s*manual",text,re.I):return "Boxed - with manual"
+        return "Boxed"
+    return None
+
+
 def _cex_candidate_score(title, category, search_query, intent, identity, grade=None):
     hay=(title+" "+category).lower(); qwords=set(normalize_words(search_query)); words=set(normalize_words(title+" "+category))
     score=2*len(qwords & words)
+    if intent.get("type")=="software":
+        # CeX frequently labels PS2 titles 'playstation2-software'. Such
+        # catalogue categories prove the platform even if the title lacks PS2.
+        expected=identity.get("platform") or intent.get("platform")
+        observed=_cex_platforms(category) | _platform_mentions(title)[0]
+        smart_delivery=(observed=={'Xbox One','Xbox Series X'} and 'smart delivery' in category.lower()
+                        and expected in ('Xbox One','Xbox Series X','Xbox One / Series X'))
+        if expected and (expected not in observed or observed!={expected}) and not smart_delivery:
+            return None
+        # Match the game TITLE, never merely the shared platform and number.
+        if not _compatible_game_year(intent, title): return None
+        wanted_contents=intent.get("gameContents") or _game_contents(intent.get("gameTitle") or search_query)[1]
+        _,actual_contents=_game_contents(title)
+        if wanted_contents and wanted_contents!=actual_contents: return None
+        game_words=set(_cex_match_words(identity.get("confirmedProduct") or intent.get("gameTitle") or search_query,expected))
+        name_words=set(_cex_match_words(title,expected))
+        if not game_words or not game_words.issubset(name_words): return None
+        # Extra title words may mean a different game, not an edition.
+        # Named catalogue editions still require the existing user confirmation.
+        edition_words={"platinum", "essentials", "special", "limited", "collectors",
+                       "collector", "edition", "ed", "directors", "cut", "steelbook"}
+        if name_words-game_words-edition_words: return None
+        if any(x in title.lower() for x in (" console", " system")): return None
+        score+=18
+        if " ".join(normalize_words(title)).startswith(" ".join(normalize_words(intent.get("gameTitle") or ""))):
+            score+=8
     if intent.get("type")=="hardware":
+        expected=identity.get("platform") or intent.get("platform")
+        observed=_cex_platforms(category) or _cex_platforms(title)
+        if expected and observed and expected not in observed:return None
         if any(x in hay for x in ("software"," games","accessor","case","controller","cable","charger","adapter","headset")): return None
         if not any(x in hay for x in ("console","consoles","system","handheld","gameboy","game boy")): return None
         score+=15
-    if any(x in hay for x in intent.get("excludeConsoleTerms",[])): return None
+    if intent.get("type")!="software" and any(x in hay for x in intent.get("excludeConsoleTerms",[])): return None
     platform=identity.get("platform") or intent.get("platform") or ""
-    if platform=="Original Xbox":
+    if intent.get("type")=="software":
+        score+=12
+    elif platform=="Original Xbox":
         if "xbox" not in hay or any(x in hay for x in ("xbox 360","xbox one","xbox series")): return None
         score+=20
     elif platform:
@@ -198,16 +481,43 @@ def _cex_candidate_score(title, category, search_query, intent, identity, grade=
     matches,conflicts=cex_identity_quality(title,identity)
     if conflicts: return None
     score+=8*len(matches)
-    if grade:
+    if grade and intent.get("type")!="software":
         actual=cex_grade_from_title(title)
         if actual==grade: score+=12
         elif actual: return None
     return score
 
 def _cex_prices(h):
-    return {"retail":_num(_first(h,"sellPrice","price_sell","sale_price")),
-            "cash":_num(_first(h,"cashPrice","price_cash","trade_in_cash_price")),
-            "voucher":_num(_first(h,"exchangePrice","price_exchange","trade_in_voucher_price"))}
+    """Normalise CeX's legacy v3 and current search-index price fields.
+
+    Some Algolia hits expose *Calculated or per-item percentage fields instead
+    of the legacy cashPrice/exchangePrice. Derived numbers are explicitly marked
+    indicative so they cannot be mistaken for a confirmed store offer.
+    """
+    retail = _num(_first(h, "sellPrice", "price_sell", "sale_price"))
+    def trade_value(direct_keys, percent_keys):
+        # Some search-index rows contain zero placeholders in legacy fields.
+        # Prefer a positive calculated/listed trade-in price over those zeros.
+        for key in direct_keys:
+            direct = _num(h.get(key))
+            if direct is not None and direct > 0:
+                return direct, "cex-calculated" if "Calculated" in key else "cex-listed"
+        percent = _num(_first(h, *percent_keys))
+        if retail is not None and retail > 0 and percent is not None and 0 < percent <= 100:
+            # Rate-derived figures are indicative, not quotes for an exact payout.
+            return round(retail * percent / 100, 2), "indicative-rate"
+        # Zero is ambiguous in this unofficial index; report it as unavailable
+        # instead of claiming CeX offered nothing.
+        return None, "unavailable"
+    cash, cash_source = trade_value(
+        ("cashPriceCalculated", "cashPrice", "price_cash", "trade_in_cash_price"),
+        ("buyPerc", "cashPercent", "cash_percent_of_sell"))
+    voucher, voucher_source = trade_value(
+        ("exchangePriceCalculated", "voucherPriceCalculated", "exchangePrice",
+         "price_exchange", "trade_in_voucher_price"),
+        ("exchangePerc", "exchangePercent", "exchange_percent_of_sell"))
+    return {"retail": retail, "cash": cash, "voucher": voucher,
+            "cashSource": cash_source, "voucherSource": voucher_source}
 
 def cex_detail(product_id):
     global _cex_last_call
@@ -228,7 +538,10 @@ def cex_detail(product_id):
 def cex_search(query, intent=None, limit=40, grade=None, identity=None, selected_product_id=None):
     global _cex_last_call
     if not query: return {"ok":False,"status":"No query","detail":"No confirmed identity supplied to CeX."}
-    intent=intent or {}; identity=identity or {}; qlow=(query or "").lower()
+    intent=intent or infer_intent(query); identity=identity or {}; qlow=query.lower()
+    if intent.get("type") not in ("software","hardware") or not (identity.get("platform") or intent.get("platform")):
+        return {"ok":False,"status":"CeX needs a supported product and platform",
+                "detail":"Search with the exact game or console and its platform, or scan a barcode."}
     if not grade:
         for g in ("discounted","unboxed","boxed"):
             if re.search(r"\b"+g+r"\b",qlow): grade=g.title(); break
@@ -237,15 +550,21 @@ def cex_search(query, intent=None, limit=40, grade=None, identity=None, selected
       "Xbox Series S":"Xbox Series S Console","Xbox Series X":"Xbox Series X Console",
       "PlayStation 2":"PlayStation 2 Console","PlayStation 3":"PlayStation 3 Console","PlayStation 4":"PlayStation 4 Console",
       "PlayStation 5":"PlayStation 5 Console","Game Boy Advance":"Gameboy Advance Console","Game Boy Color":"Gameboy Color Console"}
-    search_query=aliases.get(platform,query); attrs=identity.get("attributes") or {}
+    # CeX's UK catalogue search is strongest with the game title alone.
+    # Filter candidates by PS2/PS3/etc *after* searching, never by console keyword.
+    search_query=aliases.get(platform,query) if intent.get("type")=="hardware" else (intent.get("gameTitle") or query)
+    if intent.get("type")=="software":
+        base,_=_game_contents(search_query)
+        search_query=" ".join(_cex_game_words(_catalogue_game_title(base)))
+    attrs=identity.get("attributes") or {}
     for val in (attrs.get("revision"),attrs.get("storage"),attrs.get("colour")):
         if val and val.lower() not in search_query.lower(): search_query+=" "+val
-    if grade and grade.lower() not in search_query.lower(): search_query+=" "+grade
+    if intent.get("type")=="hardware" and grade and grade.lower() not in search_query.lower(): search_query+=" "+grade
 
     def exact_result(h, selected=False):
         title=str(_first(h,"boxName","name","title","productName") or "Unknown")
         category=str(_first(h,"categoryName","categoryFriendlyName","category","superCatName") or "")
-        actual=cex_grade_from_title(title); sc=_cex_candidate_score(title,category,search_query,intent,identity,actual)
+        actual=cex_game_grade(title) if intent.get("type")=="software" else cex_grade_from_title(title); sc=_cex_candidate_score(title,_cex_category_text(h),search_query,intent,identity,actual)
         if sc is None: return {"ok":False,"status":"CeX selection rejected","detail":"The selected CeX catalogue record conflicts with the locked RetroHQ identity."}
         prices=_cex_prices(h)
         return {"ok":True,"score":sc,"product":title,"productId":_first(h,"boxId","box_id","objectID","id"),
@@ -258,43 +577,93 @@ def cex_search(query, intent=None, limit=40, grade=None, identity=None, selected
         h=cex_detail(selected_product_id)
         if h: return exact_result(h,True)
 
-    params=urlencode({"query":search_query,"hitsPerPage":limit})
-    payload=json.dumps({"requests":[{"indexName":"prod_cex_uk","params":params}]}).encode("utf-8")
-    with _cex_lock:
-        wait=1.05-(time.monotonic()-_cex_last_call)
-        if wait>0: time.sleep(wait)
-        req=Request(CEX_SEARCH,data=payload,headers={"Content-Type":"application/json","User-Agent":"RetroHQ-Internal-PoC/0.8.1 (+internal testing)"},method="POST")
-        try:
-            with urlopen(req,timeout=12) as resp: data=json.loads(resp.read().decode("utf-8"))
-        except (HTTPError,URLError,TimeoutError,json.JSONDecodeError) as e:
-            return {"ok":False,"status":"CeX unavailable","detail":str(e)}
-        finally: _cex_last_call=time.monotonic()
-    hits=((data.get("results") or [{}])[0].get("hits") or [])
-    ranked=[]
-    for h in hits:
-        title=str(_first(h,"boxName","name","title","productName") or "")
-        category=str(_first(h,"categoryName","categoryFriendlyName","category","superCatName") or "")
-        sc=_cex_candidate_score(title,category,search_query,intent,identity,grade)
-        if sc is not None: ranked.append((sc,h))
+    # A title-only search can bury the correct release under other platforms.
+    # Use the confirmed platform to narrow the search while keeping the same
+    # title and platform checks for every result.
+    queries=[search_query]
+    if intent.get("type")=="software" and platform:
+        qualifier={
+            "PlayStation 2":"PS2","PlayStation 3":"PS3","PlayStation 4":"PS4",
+            "PlayStation 5":"PS5","Game Boy Advance":"GBA","Game Boy Color":"GBC",
+            "PlayStation 1":"PS1","Original Xbox":"Xbox","Nintendo 64":"N64",
+            "Nintendo Switch":"Switch","Nintendo DS":"DS","Nintendo 3DS":"3DS"
+        }.get(platform,platform)
+        if qualifier:
+            queries.extend((search_query+" "+qualifier,qualifier+" "+search_query))
+    queries=list(dict.fromkeys(queries))[:3]
+    ranked=[]; seen=set(); scanned=0; attempted=[]; review={}
+    for sq in queries:
+        params=urlencode({"query":sq,"hitsPerPage":limit})
+        payload=json.dumps({"requests":[{"indexName":"prod_cex_uk","params":params}]}).encode("utf-8")
+        with _cex_lock:
+            wait=1.05-(time.monotonic()-_cex_last_call)
+            if wait>0: time.sleep(wait)
+            req=Request(CEX_SEARCH,data=payload,headers={
+                "Content-Type":"application/json",
+                "User-Agent":"RetroHQ-Internal-PoC/0.8.1 (+internal testing)"},method="POST")
+            try:
+                with urlopen(req,timeout=12) as resp:
+                    data=json.loads(resp.read().decode("utf-8"))
+            except (HTTPError,URLError,TimeoutError,json.JSONDecodeError) as e:
+                code="HTTP {}".format(e.code) if isinstance(e,HTTPError) else type(e).__name__
+                _cex_health.update(checked=True,ok=False,status="Unavailable ("+code+")")
+                if not ranked:
+                    return {"ok":False,"status":"CeX unavailable","detail":"CeX search request failed: "+code}
+                break  # already have a verified match from a previous search
+            finally:
+                _cex_last_call=time.monotonic()
+        _cex_health.update(checked=True,ok=True,status="Responding")
+        attempted.append(sq)
+        hits=((data.get("results") or [{}])[0].get("hits") or [])
+        scanned+=len(hits)
+        for h in hits:
+            title=str(_first(h,"boxName","name","title","productName") or "")
+            category=_cex_category_text(h)
+            sc=_cex_candidate_score(title,category,sq,intent,identity,grade)
+            if sc is None:
+                if intent.get("type")=="software" and _cex_platforms(category)=={platform}:
+                    wanted=set(_cex_match_words(identity.get("confirmedProduct") or intent.get("gameTitle"),platform))
+                    words=_cex_match_words(title,platform)
+                    shared=wanted.intersection(words)-{"the","and","of","game"}
+                    same_numbers={word for word in wanted if word.isdigit()}=={word for word in words if word.isdigit()}
+                    if same_numbers and words and (len(shared)>=2 or len(wanted)==1 and shared):
+                        candidate_query=" ".join([*words,platform])
+                        review.setdefault(candidate_query,{"product":title,"query":candidate_query})
+                continue
+            pid=str(_first(h,"boxId","box_id","objectID","id") or "")
+            key=pid or (title.lower(),category.lower())
+            if key in seen: continue
+            seen.add(key)
+            ranked.append((sc,h))
+        # Once a usable exact-platform candidate is found there is no reason
+        # to call the unofficial CeX search service again.
+        if ranked: break
     ranked.sort(key=lambda x:x[0],reverse=True)
     if selected_product_id:
         for _,cand in ranked:
             pid=str(_first(cand,"boxId","box_id","objectID","id") or "")
             if pid==str(selected_product_id): return exact_result(cand,True)
         return {"ok":False,"status":"CeX exact match unavailable","detail":"The selected CeX record could not be refreshed. Choose a CeX match again."}
+    if not scanned:
+        return {"ok":False,"status":"No CeX catalogue results","detail":"CeX responded, but found no records for this search."}
     if not ranked or ranked[0][0]<12:
-        return {"ok":False,"status":"No confident CeX match","detail":"CeX returned no candidate that passed RetroHQ's locked product identity checks."}
-    if intent.get("type")=="hardware" and not grade:
+        return {"ok":False,"status":"No confident CeX match",
+                "detail":"CeX checked {} catalogue result(s) across {} search(es), but none passed the title, platform and contents checks. No UK price was inferred.".format(scanned,len(attempted)) if intent.get("type")=="software" else
+                         "CeX returned no candidate that passed RetroHQ's locked product identity checks.",
+                "suggestions":list(review.values())[:3]}
+    if intent.get("type") in ("hardware","software"):
+        # Games may have standard, Platinum, Director's Cut or regional variants.
+        # Explicitly confirm a game edition before using CeX as a UK benchmark.
         variants=[]; seen=set(); best=ranked[0][0]
         for sc,cand in ranked[:16]:
-            if sc<best-5: continue
+            if sc<best-(14 if intent.get("type")=="software" else 5): continue
             nm=str(_first(cand,"boxName","name","title","productName") or ""); pid=str(_first(cand,"boxId","box_id","objectID","id") or "")
             if not pid or pid in seen: continue
             seen.add(pid); prices=_cex_prices(cand)
-            variants.append({"productId":pid,"grade":cex_grade_from_title(nm) or "CeX variant","product":nm,**prices})
-            if len(variants)>=6: break
-        if len(variants)>1:
-            return {"ok":False,"status":"CeX variant needed","detail":"Multiple credible CeX catalogue records match the locked product. Choose the exact CeX record to continue.","variants":variants}
+            variants.append({"productId":pid,"grade":(cex_game_grade(nm) if intent.get("type")=="software" else cex_grade_from_title(nm)) or "CeX variant","product":nm,**prices})
+            if len(variants)>=(16 if intent.get("type")=="software" else 6): break
+        if len(variants)>1 or (intent.get("type")=="software" and variants):
+            return {"ok":False,"status":"CeX variant needed","detail":"Confirm the exact CeX game edition before adopting its UK retail value." if intent.get("type")=="software" else "Multiple credible CeX catalogue records match the locked product. Choose the exact CeX record to continue.","variants":variants}
     return exact_result(ranked[0][1],False)
 
 # Test 8.1 — live replacement-cost evidence for essential console accessories.
@@ -394,11 +763,64 @@ def pc_call(url, params):
         finally: _pc_last_call = time.monotonic()
 
 def normalize_words(s):
-    import re
-    return [w for w in re.sub(r"[^a-z0-9]+"," ",(s or "").lower()).split() if w]
+    import re, unicodedata
+    text=unicodedata.normalize("NFKD",s or "").encode("ascii","ignore").decode().lower()
+    return [w for w in re.sub(r"[^a-z0-9]+"," ",text).split() if w]
+
+_HARDWARE_TERMS = {
+    "console", "system", "handheld", "slim", "super", "fat", "phat", "pro", "elite",
+    "arcade", "boxed", "unboxed", "discounted", "storage", "gb", "tb",
+    "red", "scarlet", "indigo", "glacier", "purple", "black", "white",
+    "silver", "blue", "pink", "green", "gold", "grey", "gray",
+    "controller", "controllers", "pad", "pads", "cable", "cables", "power",
+    "with", "without", "only", "bundle", "used", "new", "model", "edition",
+    "pal", "ntsc", "uk", "limited", "working", "unit", "original"
+}
+_GAME_TERMS = {"game", "disc", "disk", "cartridge", "cart", "manual", "cib", "complete"}
+
+def _platform_product_kind(query, phrases):
+    """Distinguish 'PS2 console' from 'Silent Hill 2 PS2'.
+
+    A platform mention identifies the format, not necessarily the item type.
+    Unknown extra title words are treated as a game, not as console hardware.
+    """
+    q = " ".join(normalize_words(query))
+    platform_phrases = sorted(phrases, key=len, reverse=True)
+    platforms = "|".join(re.escape(phrase) for phrase in platform_phrases)
+    # A trailing run of familiar listing descriptors belongs to condition and
+    # contents. Keep the title, format marker and any named edition.
+    descriptors = (r"pal(?: version)?|uk(?: pal)?|boxed|unboxed|cib|complete(?: in box)?|"
+                   r"(?:with|without|w|w o) (?:manual|inserts(?: and)? manual|inserts)|"
+                   r"(?:disc|disk|cartridge|cart) only|(?:fully )?tested(?: and working)?|manual|game|vgc|sealed|"
+                   r"superfx|thq|pegi (?:3|7|12|16|18)|(?:19|20)\d{2}|(?:sles|scus|slus|sces) \d{4,5}")
+    q = re.sub(r"\b((?:" + platforms + r")(?: (?:game|disc|disk|cartridge|cart))?)(?: (?:" +
+               descriptors + r"))+$", r"\1", q)
+    if any(phrase.startswith(("ps","playstation")) for phrase in phrases):
+        q = re.sub(r"\bsony (?=(?:"+platforms+r")\b)", "", q)
+    if "snes" in phrases:
+        q = re.sub(r"(?<!super )\bnintendo (?=(?:super nes|super nintendo|snes)\b)", "", q)
+    remainder = q
+    for phrase in platform_phrases:
+        if re.search(r"\b" + re.escape(phrase) + r"\b", remainder):
+            remainder = re.sub(r"\b" + re.escape(phrase) + r"\b", " ", remainder)
+    terms = normalize_words(remainder)
+    if terms[:2]==["disney","pixar"] and len(terms)>2:terms=terms[2:]
+    # Explicit references to games take precedence unless explicitly hardware.
+    if any(t in ("console", "system", "handheld") for t in terms):
+        return "hardware", ""
+    if any(t in _GAME_TERMS for t in terms):
+        return "software", " ".join(t for t in terms if t not in _GAME_TERMS)
+    non_hardware = [t for t in terms if t not in _HARDWARE_TERMS
+                    and not re.fullmatch(r"\d+(?:gb|tb)?|(?:cech|scph)[a-z0-9-]+", t)]
+    if non_hardware:
+        return "software", " ".join(t for t in terms if t not in ("pal","ntsc","uk"))
+    return "hardware", ""
+
 
 def infer_intent(query):
-    q=" ".join(normalize_words(query))
+    query_with_contents=re.sub(r"\+\s*(?=(?:buzz\s+)?buzzers?\b)"," with ",query,flags=re.I)
+    q=" ".join(normalize_words(query_with_contents))
+    q=re.sub(r"\bplay station\b","playstation",q)
     intent={"type":"unknown","family":None,"platform":None,"label":None,"ambiguous":False,"providerQueries":[],"allowedConsoleTerms":[],"excludeConsoleTerms":[]}
     if any(w in q.split() for w in ("console","handheld","system")): intent["type"]="hardware"
 
@@ -406,7 +828,7 @@ def infer_intent(query):
     # not weakened by a provider's broad text search.
     taxonomy=[
       (("original xbox","xbox original"),"Xbox","Original Xbox","hardware",["Xbox System","Original Xbox System"],["xbox"],["xbox 360","xbox one","xbox series"]),
-      (("xbox series s",),"Xbox","Xbox Series S","hardware",["Xbox Series S Console","Xbox Series S System"],["xbox series x"], ["xbox 360","xbox one"]),
+      (("xbox series s",),"Xbox","Xbox Series S","hardware",["Xbox Series S Console","Xbox Series S System"],["xbox series s"], ["xbox 360","xbox one"]),
       (("xbox series x",),"Xbox","Xbox Series X","hardware",["Xbox Series X Console","Xbox Series X System"],["xbox series x"], ["xbox 360","xbox one"]),
       (("xbox one",),"Xbox","Xbox One","hardware",["Xbox One Console","Xbox One System"],["xbox one"],["xbox 360","xbox series"]),
       (("xbox 360",),"Xbox","Xbox 360","hardware",["Xbox 360 Console","Xbox 360 System"],["xbox 360"],["xbox one","xbox series"]),
@@ -416,12 +838,37 @@ def infer_intent(query):
       (("ps2","playstation 2"),"PlayStation","PlayStation 2","hardware",["PlayStation 2 System","PS2 System"],["playstation 2","ps2"],["playstation 3","ps3"]),
       (("gameboy advance","game boy advance","gba"),"Nintendo","Game Boy Advance","hardware",["Game Boy Advance System","GameBoy Advance System"],["gameboy advance","game boy advance"],["gameboy color","game boy color","gameboy sp","game boy sp"]),
       (("gameboy color","game boy color","gbc"),"Nintendo","Game Boy Color","hardware",["Game Boy Color System","GameBoy Color System"],["gameboy color","game boy color"],["gameboy advance","game boy advance"]),
+      (("super nintendo","super nes","snes"),"Nintendo","SNES","hardware",["Super Nintendo System","SNES System"],["super nintendo","super nes","snes"],[]),
     ]
-    # Prefer longest/specific phrases first.
-    for phrases,family,label,typ,provider,allowed,excluded in taxonomy:
-        if any(ph in q for ph in phrases):
-            intent.update(type=typ,family=family,platform=label,label=label,providerQueries=provider,allowedConsoleTerms=allowed,excludeConsoleTerms=excluded)
-            return intent
+    platforms,_=_platform_mentions(q)
+    if len(platforms)>1:
+        intent.update(ambiguous=True,refinements=[{"label":platform,"query":platform} for platform in sorted(platforms)])
+        return intent
+    if platforms:
+        label=next(iter(platforms))
+        legacy=next((row for row in taxonomy if row[2]==label),None)
+        family=legacy[1] if legacy else label.split()[0]
+        provider=legacy[4] if legacy else [label+" System",label+" Console"]
+        allowed=legacy[5] if legacy else []
+        excluded=legacy[6] if legacy else []
+        phrases=_PLATFORM_ALIASES[label]
+        # Match compact slugs in queries as well as catalogue labels.
+        for phrase in phrases:
+            if " " in phrase:
+                q=re.sub(r"\b"+re.escape(phrase.replace(" ",""))+r"\b",phrase,q)
+        kind,game_title=_platform_product_kind(q,phrases)
+        intent.update(type=kind,family=family,platform=label,label=label,
+                      providerQueries=provider if kind=="hardware" else [],
+                      allowedConsoleTerms=allowed,excludeConsoleTerms=excluded)
+        if kind=="software":
+            base,contents=_game_contents(re.sub(r"\s+sealed$","",game_title))
+            intent.update(gameTitle=base,gameContents=contents)
+            year=_RELEASE_YEAR.search(query)
+            if year:
+                intent["releaseYear"]=year.group(1)
+                clean=re.sub(r"\b"+year.group(1)+r"\b"," ",q,count=1)
+                _,intent["gameTitle"]=_platform_product_kind(clean,phrases)
+        return intent
 
     if q in ("xbox","xbox console","xbox system"):
         intent.update(type="hardware",family="Xbox",label="Xbox",ambiguous=True)
@@ -447,6 +894,36 @@ def is_hardware_candidate(c):
 def candidate_allowed(c,intent):
     pn=(c.get("product-name") or "").lower(); cn=(c.get("console-name") or "").lower(); hay=pn+" "+cn
     if intent.get("type")=="hardware" and not is_hardware_candidate(c): return False
+    if intent.get("type")=="software":
+        if is_hardware_candidate(c): return False
+        platform = intent.get("platform") or ""
+        observed=_cex_platforms(cn)
+        if platform and observed and platform not in observed: return False
+        if platform=="SNES" and observed!={"SNES"}: return False
+        aliases = {
+            "PlayStation 2": ("playstation 2", "ps2"),
+            "PlayStation 3": ("playstation 3", "ps3"),
+            "PlayStation 4": ("playstation 4", "ps4"),
+            "PlayStation 5": ("playstation 5", "ps5"),
+            "Game Boy Advance": ("gameboy advance", "game boy advance", "gba"),
+            "Game Boy Color": ("gameboy color", "game boy color", "gbc"),
+            "Original Xbox": ("xbox",),
+            "Xbox 360": ("xbox 360",),
+            "Xbox One": ("xbox one",),
+            "Xbox Series S": ("xbox series",),
+            "Xbox Series X": ("xbox series",),
+        }.get(platform, ())
+        if aliases and not any(a in cn for a in aliases): return False
+        if not _compatible_game_year(intent, pn): return False
+        wanted=re.sub(r'\bcod\b','call of duty',_catalogue_game_title(intent.get('gameTitle')),flags=re.I)
+        shorthand=re.search(r'\bmw([123])\b',wanted,re.I)
+        if shorthand:
+            number=shorthand.group(1); roman={'1':'i','2':'ii','3':'iii'}[number]
+            candidate_words=set(normalize_words(pn))
+            if not {'modern','warfare'}.issubset(candidate_words) or not ({number,roman}&candidate_words): return False
+            wanted=re.sub(r'\bmw[123]\b','modern warfare',wanted,flags=re.I)
+        game_words = set(normalize_words(wanted))
+        if game_words and not game_words.issubset(set(normalize_words(_catalogue_game_title(pn)))): return False
     if any(x in hay for x in intent.get("excludeConsoleTerms",[])): return False
     allowed=intent.get("allowedConsoleTerms",[])
     if allowed and not any(x in hay for x in allowed): return False
@@ -456,6 +933,14 @@ def candidate_score(query, c, intent):
     q=set(normalize_words(query)); name=set(normalize_words(c.get("product-name"))); con=set(normalize_words(c.get("console-name")))
     score=2*len(q & name)+len(q & con)
     if intent.get("platform") and candidate_allowed(c,intent): score+=20
+    if intent.get("type")=="software":
+        wanted = intent.get("gameTitle","").strip().lower()
+        name = (c.get("product-name") or "").strip().lower()
+        if wanted and name==wanted: score+=25
+        elif wanted and name.startswith(wanted+" "): score+=15
+        # Prefer UK/PAL records when searching UK stock, but ask when editions compete.
+        region = (c.get("console-name") or "").lower()
+        if "pal" in region: score+=10
     # Useful variant attributes typed by the reseller should rise naturally.
     for attr in ("indigo","glacier","white","black","red","blue","silver","pink","purple","slim","super slim","elite","arcade","250gb","320gb","500gb","1tb"):
         if attr in " ".join(normalize_words(query)) and attr in (c.get("product-name") or "").lower(): score+=5
@@ -463,6 +948,11 @@ def candidate_score(query, c, intent):
 
 def pc_candidates_for(query,intent):
     searches=[]
+    if intent.get("type")=="software" and intent.get("gameTitle"):
+        title=re.sub(r'\bcod\b','call of duty',_catalogue_game_title(intent['gameTitle']),flags=re.I)
+        if re.search(r'\bmw3\b',title,re.I):
+            searches.extend(re.sub(r'\bmw3\b',edition,title,flags=re.I) for edition in ('modern warfare 3','modern warfare iii'))
+        searches.append(title)
     for x in intent.get("providerQueries",[]):
         if x not in searches: searches.append(x)
     if query not in searches: searches.append(query)
@@ -490,12 +980,51 @@ def pc_detail(product_id=None, barcode=None, query=None):
     return {"ok":True,"id":data.get("id"),"product":data.get("product-name"),"console":data.get("console-name"),"genre":data.get("genre"),"upc":data.get("upc"),"salesVolume":data.get("sales-volume"),"prices":fields}
 
 def pricecharting_lookup(query, barcode, selected_id=None):
-    if selected_id: return {"mode":"matched","result":pc_detail(product_id=selected_id)}
-    if barcode: return {"mode":"matched","result":pc_detail(barcode=barcode)}
+    if barcode:
+        try:
+            barcode = item_identification.normalize_barcode(barcode)
+        except ValueError as error:
+            return {"mode":"invalid-barcode", "result":{"ok":False,"status":"Invalid barcode","detail":str(error)}}
+        if re.sub(r"[\s-]", "", query or "") == barcode:
+            query = ""
+    if selected_id:
+        result=pc_detail(product_id=selected_id)
+        intent=infer_intent(query) if query else {}
+        if result.get("ok") and query and not candidate_allowed(
+                {"product-name":result.get("product"),"console-name":result.get("console")},intent):
+            return {"mode":"error","intent":intent,"result":{
+                "ok":False,"status":"Rejected mismatched edition",
+                "detail":"The chosen PriceCharting product does not match the item type, title or platform."}}
+        resolved=' '.join(str(result.get(k) or '') for k in ('product','console')).strip()
+        return {"mode":"matched","intent":intent,"result":result,'resolvedQuery':resolved if result.get('ok') and not query else query}
+    if barcode:
+        result = pc_detail(barcode=barcode)
+        resolved = " ".join(str(result.get(k) or "") for k in ("product", "console")).strip()
+        intent = infer_intent(query or resolved)
+        if result.get("ok") and query and not candidate_allowed({"product-name":result.get("product"),"console-name":result.get("console")},intent):
+            return {"mode":"invalid-barcode","result":{"ok":False,"status":"Barcode and description disagree","detail":"The barcode resolves to another item or platform. Check the barcode or clear the old description."}}
+        if not result.get('ok'):
+            # UK EANs often exist in CeX even when PriceCharting has no UPC entry.
+            # Accept only a detail record with this exact barcode and one platform.
+            hit=cex_detail(barcode)
+            if hit and str(_first(hit,'boxId','box_id','objectID','id') or '')==barcode:
+                category=_cex_category_text(hit);platforms=_cex_platforms(category)
+                title=str(_first(hit,'boxName','name','title','productName') or '')
+                if title and (len(platforms)==1 or platforms=={'Xbox One','Xbox Series X'}) and re.search(r'software|games',category,re.I):
+                    platform=next(iter(platforms)) if len(platforms)==1 else 'Xbox One / Series X'
+                    intent={'type':'software','platform':platform,'label':platform,'gameTitle':title}
+                    if query and not candidate_allowed({'product-name':title,'console-name':platform},infer_intent(query)):
+                        return {'mode':'invalid-barcode','result':{'ok':False,'detail':'Barcode and description disagree. Clear the old description or check the code.'}}
+                    return {'mode':'matched','intent':intent,'result':result,'resolvedQuery':title+' '+platform,'cexBarcodeId':barcode}
+        return {"mode":"matched","intent":intent,"result":result,"resolvedQuery":resolved if result.get("ok") else query}
     if not query: return {"mode":"error","result":{"ok":False,"status":"No search supplied","detail":"Enter a description or barcode."}}
     intent=infer_intent(query)
     if intent.get("ambiguous") and intent.get("refinements"):
         return {"mode":"refinements","intent":intent,"refinements":intent["refinements"],"reason":"RetroHQ recognises the console family, but the generation is not specific enough. Choose the generation first."}
+    if not os.environ.get("PRICECHARTING_API_TOKEN", "").strip():
+        return {"mode":"error","intent":intent,"result":{
+            "ok":False,"status":"PriceCharting token missing",
+            "detail":"PRICECHARTING_API_TOKEN is not loaded. CeX UK can still provide an independent benchmark."}}
     ranked,errors=pc_candidates_for(query,intent)
     top=ranked[:8]
     if not top:
@@ -507,6 +1036,8 @@ def pricecharting_lookup(query, barcode, selected_id=None):
     if len(top)>1:
         best_score=top[0].get("score",0); second_score=top[1].get("score",0)
         confident=best_score>=30 and (best_score-second_score)>=6
+        # Region, collector and re-release editions should not be silently conflated.
+        if intent.get("type")=="software": confident=False
         if not confident:
             return {"mode":"candidates","intent":intent,"candidates":top,"reason":"RetroHQ found more than one credible match. One confirmation is needed before pricing."}
     detail=pc_detail(product_id=top[0].get("id"))
@@ -516,68 +1047,283 @@ def pricecharting_lookup(query, barcode, selected_id=None):
 
 class H(SimpleHTTPRequestHandler):
     def translate_path(self, path):
-        clean = urlparse(path).path.lstrip("/")
-        return str(ROOT / (clean or "index.html"))
+        # Never serve hidden files, credentials or paths outside the project root.
+        clean = unquote(urlparse(path).path).lstrip("/")
+        parts = Path(clean).parts
+        if any(part.startswith(".") for part in parts):
+            return str(ROOT / "__not_found__")
+        candidate = (ROOT / (clean or "index.html")).resolve()
+        if not candidate.is_relative_to(ROOT.resolve()):
+            return str(ROOT / "__not_found__")
+        return str(candidate)
+    def log_message(self, format, *args):
+        # The OAuth callback query contains a one-use authorization code.
+        if "/ebay/oauth/callback" in self.path or "/ebay/live/callback" in self.path:
+            return
+        super().log_message(format, *args)
     def send_json(self, body, status=200):
         raw = json.dumps(body).encode("utf-8")
         self.send_response(status); self.send_header("Content-Type", "application/json")
-        self.send_header("Cache-Control", "no-store"); self.send_header("Content-Length", str(len(raw)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Referrer-Policy", "no-referrer")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Content-Length", str(len(raw)))
         self.end_headers(); self.wfile.write(raw)
+    def do_POST(self):
+        u = urlparse(self.path)
+        if u.path == "/api/trade-manager":
+            if self.headers.get("X-RetroHQ-Action") != "trade-manager" or self.headers.get("Sec-Fetch-Site", "same-origin") != "same-origin":
+                self.send_json({"ok":False,"status":"Request blocked."},403); return
+            try:
+                size = int(self.headers.get("Content-Length", "0"))
+                if not 1 <= size <= 2048:
+                    raise ValueError("Invalid size")
+                payload = json.loads(self.rfile.read(size).decode("utf-8"))
+                if not isinstance(payload,dict):
+                    raise ValueError("Invalid payload")
+            except (ValueError,UnicodeError):
+                self.send_json({"ok":False,"status":"Invalid manager request."},400); return
+            result, status = trade_manager.request(payload)
+            self.send_json(result,status); return
+        if u.path == "/api/identify-photo":
+            if self.headers.get("X-RetroHQ-Action") != "identify-photo" or self.headers.get("Sec-Fetch-Site", "same-origin") != "same-origin":
+                self.send_json({"ok":False,"status":"Request blocked."},403); return
+            try:
+                size = int(self.headers.get("Content-Length", "0"))
+                if size < 1 or size > 4_100_000:
+                    raise ValueError("Invalid size")
+                payload = json.loads(self.rfile.read(size).decode("utf-8"))
+                if not isinstance(payload,dict): raise ValueError("Invalid payload")
+            except (ValueError,UnicodeError):
+                self.send_json({"ok":False,"status":"Invalid photo request or image too large."},400); return
+            # Everyday photo search uses the private Codespace access boundary.
+            # Keep this port private; Seller administration retains its own PIN.
+            result = item_identification.identify_photo(payload.get("image"))
+            self.send_json(result,200 if result.get("ok") else 400); return
+        if u.path not in ("/api/ebay-live/start", "/api/ebay-live/snapshot", "/api/ebay-live/orders", "/api/ebay-live/listing-details", "/api/ebay-seller/start", "/api/ebay-seller/test", "/api/ebay-seller/orders"):
+            self.send_json({"ok": False, "status": "Not found."}, 404); return
+        if self.headers.get("X-RetroHQ-Action") != "seller-oauth" or self.headers.get("Sec-Fetch-Site", "same-origin") != "same-origin":
+            self.send_json({"ok": False, "status": "Request blocked."}, 403); return
+        try:
+            size = int(self.headers.get("Content-Length", "0"))
+            if size < 1 or size > (65536 if u.path=="/api/ebay-live/listing-details" else 1024):
+                self.send_json({"ok": False, "status": "Invalid request size."}, 400); return
+            payload = json.loads(self.rfile.read(size).decode("utf-8"))
+        except (ValueError, UnicodeError):
+            self.send_json({"ok": False, "status": "Invalid request."}, 400); return
+        if not isinstance(payload, dict) or not ebay_seller.admin_pin_valid(payload.get("pin")):
+            self.send_json({"ok": False, "status": ebay_seller.admin_pin_error()}, 403); return
+        if u.path == "/api/ebay-live/start":
+            result = ebay_live.start_authorisation()
+        elif u.path == "/api/ebay-live/snapshot":
+            result = ebay_live.snapshot()
+        elif u.path == "/api/ebay-live/orders":
+            result = ebay_live.sales_history(payload.get("days",90))
+        elif u.path == "/api/ebay-live/listing-details":
+            result = ebay_live.listing_details(payload.get("rows"))
+        elif u.path == "/api/ebay-seller/start":
+            result = ebay_seller.start_authorisation()
+        elif u.path == "/api/ebay-seller/orders":
+            result = ebay_seller.list_orders()
+        else:
+            result = ebay_seller.test_connection()
+        self.send_json(result, 200 if result.get("ok") else 400)
+
+    def market_provider(self, name, lookup, *args, **kwargs):
+        try:
+            result=lookup(*args,**kwargs)
+            if not isinstance(result,dict): raise ValueError("Invalid provider result")
+            return result
+        except Exception as error:
+            self.log_error("%s market provider failed (%s)",name,type(error).__name__)
+            return {"ok":False,"status":name+" unavailable","detail":"This source could not complete the lookup. Try again."}
+
+    def market_ebay_evidence(self,q):
+        try:
+            return ebay_market_evidence(q)
+        except Exception as error:
+            self.log_error("eBay UK market provider failed (%s)",type(error).__name__)
+            return [{"provider":"eBay UK","status":"Unavailable","detail":"This source could not complete the lookup. Try again."}]
+
+    def market_search(self,p):
+        q=(p.get("q") or [""])[0].strip(); barcode=(p.get("barcode") or [""])[0].strip(); selected_id=(p.get("id") or [""])[0].strip(); cex_grade=(p.get("cexGrade") or [""])[0].strip() or None; cex_id=(p.get("cexId") or [""])[0].strip() or None
+        lookup = self.market_provider("PriceCharting", pricecharting_lookup, q, barcode, selected_id)
+        if not lookup.get("mode"):
+            lookup = {"mode":"error","result":lookup}
+        initial_cex = None
+        if p.get("stockPrice") and lookup.get("mode")=="candidates" and not barcode and not selected_id:
+            search_intent=lookup.get("intent") or infer_intent(q)
+            if search_intent.get("type")=="software" and search_intent.get("platform"):
+                initial_cex=self.market_provider("CeX UK",cex_search,q,search_intent,grade=cex_grade,selected_product_id=cex_id)
+                if initial_cex.get("ok") or initial_cex.get("variants"):
+                    lookup={"mode":"error","intent":search_intent,"result":{"status":"Edition choice available",
+                        "detail":"CeX matched the title and platform directly. PriceCharting found multiple editions."}}
+        if lookup.get("mode") == "invalid-barcode":
+            self.send_json({"ok":False,"status":lookup["result"]["detail"],"marketValue":None},400); return
+        if lookup.get("resolvedQuery"):
+            q = lookup["resolvedQuery"]
+        if lookup.get("mode") == "refinements":
+            self.send_json({"query":q,"barcode":barcode,"marketValue":None,"confidence":"needs-refinement","needsRefinement":True,"evidence":self.market_ebay_evidence(q),"intent":lookup.get("intent"),"refinements":lookup.get("refinements",[]),"reason":lookup.get("reason")}); return
+        if lookup.get("mode") == "candidates":
+            self.send_json({"query":q,"barcode":barcode,"marketValue":None,"confidence":"needs-confirmation","needsConfirmation":True,"evidence":self.market_ebay_evidence(q),"intent":lookup.get("intent"),"provisionalIdentity":cex_fallback_identity(q, lookup.get("intent") or infer_intent(q)),"candidates":lookup.get("candidates",[]),"reason":lookup.get("reason")}); return
+        pc = lookup.get("result", {})
+        market_intent=confirmed_market_intent(q,pc,lookup.get('intent') or infer_intent(q))
+        identity = canonical_identity(q,pc,market_intent) if pc.get("ok") else None
+        evidence = self.market_ebay_evidence(q)
+
+        if pc.get("ok"):
+            pr = pc.get("prices") or {}
+            parts=[]
+            for label,key in (("Loose","loose-price"),("CIB","cib-price"),("New","new-price"),("Retail CIB buy","retail-cib-buy"),("Retail CIB sell","retail-cib-sell")):
+                if pr.get(key) is not None: parts.append(f"{label} ${pr[key]:.2f}")
+            if pc.get("salesVolume") not in (None, ""): parts.append(f"Annual sales volume {pc['salesVolume']}")
+            evidence.append({"provider":"PriceCharting","status":"Live","currency":"USD","product":pc.get("product"),"console":pc.get("console"),
+                             "prices":pr,"salesVolume":pc.get("salesVolume"),"productId":pc.get("id"),
+                             "detail":f"Matched: {pc.get('product','Unknown')} — {pc.get('console','Unknown')}. " + " · ".join(parts)})
+            cex = self.market_provider("CeX UK",cex_search,q, market_intent, grade=cex_grade, identity=identity, selected_product_id=cex_id)
+            # One exact title/platform match after catalogue identity confirmation
+            # needs no second user click. Editions and ambiguous records still do.
+            variants=cex.get("variants") or []
+            if (not cex_id and not p.get("cexChoose") and not market_intent.get("releaseYear")
+                and len(variants)==1 and identity.get("type")=="software"
+                and identity.get("confirmedProduct") and
+                _cex_game_words(variants[0].get("product"))==_cex_game_words(identity["confirmedProduct"])):
+                candidate=self.market_provider("CeX UK",cex_search,q,market_intent,grade=cex_grade,
+                               identity=identity,selected_product_id=variants[0]["productId"])
+                if candidate.get("ok"):
+                    cex=candidate
+                    cex["selectedByUser"]=False
+                    cex["matchQuality"]="Single exact title and platform match"
+            if cex.get("ok"):
+                cparts=[]
+                if cex.get("retail") is not None: cparts.append(f"retail £{cex['retail']:.2f}")
+                if cex.get("cash") is not None: cparts.append(f"cash £{cex['cash']:.2f}")
+                if cex.get("voucher") is not None: cparts.append(f"voucher £{cex['voucher']:.2f}")
+                evidence.append({"provider":"CeX UK","status":"Live","currency":"GBP","product":cex.get("product"),"productId":cex.get("productId"),"retail":cex.get("retail"),"cash":cex.get("cash"),"voucher":cex.get("voucher"),"cashSource":cex.get("cashSource"),"voucherSource":cex.get("voucherSource"),"stock":cex.get("stock"),"grade":cex.get("grade"),"matchQuality":cex.get("matchQuality"),"selectedByUser":cex.get("selectedByUser",False),"identity":identity,"detail":f"Matched: {cex.get('product')}. " + " · ".join(cparts)})
+                market_value = cex.get("retail")
+                method = "CeX UK retail is the identity-validated benchmark for the selected grade. RetroHQ then adjusts that benchmark for the actual item's known completeness. Cash and voucher trade-in are evidence only and are never used as market value."
+            else:
+                evidence.append({"provider":"CeX UK","status":cex.get("status","Unavailable"),"detail":cex.get("detail",""),"variants":cex.get("variants",[]),"suggestions":cex.get("suggestions",[])})
+                market_value = None
+                method = "Live PriceCharting reference loaded. CeX pricing is awaiting a grade choice where multiple catalogue records exist; uncertain evidence is excluded from UK Market Value."
+        else:
+            evidence.append({"provider":"PriceCharting","status":pc.get("status","Unavailable"),"detail":pc.get("detail","")})
+            intent = lookup.get("intent") or infer_intent(q)
+            fallback = cex_fallback_identity(q, intent)
+            barcode_match=bool(lookup.get('cexBarcodeId') and not cex_id)
+            cex = initial_cex or self.market_provider("CeX UK",cex_search,q, intent, grade=cex_grade, identity=fallback, selected_product_id=cex_id or lookup.get('cexBarcodeId'))
+            variants=cex.get("variants") or []
+            exact_stock_match=False
+            if (p.get("stockPrice") and not cex_id and not p.get("cexChoose") and not intent.get("releaseYear")
+                and intent.get("type")=="software" and intent.get("platform") and len(variants)==1
+                and _cex_game_words(variants[0].get("product"))==_cex_game_words(intent.get("gameTitle"))):
+                candidate=self.market_provider("CeX UK",cex_search,q,intent,grade=cex_grade,selected_product_id=variants[0]["productId"])
+                if candidate.get("ok"):
+                    cex=candidate
+                    cex["selectedByUser"]=False
+                    exact_stock_match=True
+            if barcode_match and cex.get('ok'):
+                cex['selectedByUser']=False
+                cex['matchedByBarcode']=True
+                cex['matchQuality']='Exact EAN catalogue match'
+            if cex.get("ok"):
+                confirmed = bool(cex.get("selectedByUser"))
+                # Strongly matched hardware can use CeX without PriceCharting.
+                # Games and vague hardware queries require explicit confirmation.
+                strong_hardware = bool(fallback and fallback["attributes"] and cex.get("score", 0) >= 40)
+                usable = (confirmed or exact_stock_match or cex.get('matchedByBarcode') or strong_hardware) and cex.get("retail") is not None
+                evidence.append({"provider":"CeX UK","status":"Live","currency":"GBP",
+                    "product":cex.get("product"),"productId":cex.get("productId"),
+                    "retail":cex.get("retail"),"cash":cex.get("cash"),
+                    "voucher":cex.get("voucher"),"stock":cex.get("stock"),
+                    "cashSource":cex.get("cashSource"),"voucherSource":cex.get("voucherSource"),
+                    "grade":cex.get("grade"),"score":cex.get("score"),
+                    "selectedByUser":confirmed,
+                    "matchQuality":"Confirmed CeX catalogue record" if confirmed else
+                                   "Single exact title and platform match" if exact_stock_match else
+                                   "Strong hardware match" if strong_hardware else "Needs confirmation",
+                    "detail":"CeX catalogue match found. " +
+                        ("UK retail benchmark ready." if usable else
+                         "Confirm the exact CeX record before using its retail price.")})
+                market_value = cex.get("retail") if usable else None
+                if usable:
+                    identity = dict(fallback or {"type":intent.get("type"),"platform":intent.get("platform"),
+                                               "family":intent.get("family"),"attributes":identity_attributes(q)})
+                    identity.update(confirmedProduct=cex.get("product"),label=cex.get("product"),
+                                    cexProductId=cex.get("productId"),source="cex-barcode" if cex.get('matchedByBarcode') else "cex-confirmed" if confirmed else "cex-exact" if exact_stock_match else "cex-strong")
+                    method="CeX UK retail benchmark independently verified without PriceCharting. RetroHQ applies condition and completeness adjustments; CeX cash and voucher are separate evidence."
+                else:
+                    method="CeX returned a possible match, but RetroHQ requires confirmation before using its retail price."
+            else:
+                evidence.append({"provider":"CeX UK","status":cex.get("status","Unavailable"),"detail":cex.get("detail",""),"variants":cex.get("variants",[]),"suggestions":cex.get("suggestions",[])})
+                market_value=None
+                method="No confident UK benchmark. Check the CeX status and choose a matching catalogue variant if offered."
+        self.send_json({"query":q,"barcode":barcode,"marketValue":market_value,"confidence":"uk-retail-benchmark" if market_value is not None else ("reference-only" if pc.get("ok") else "unavailable"),"evidence":evidence,"method":method,"lockedIdentity":identity,"provisionalIdentity":cex_fallback_identity(q, lookup.get("intent") or infer_intent(q)),"pricechartingProductId":pc.get("id") if pc.get("ok") else None}); return
+
     def do_GET(self):
         u = urlparse(self.path)
+        if u.path == "/api/ebay-live/status":
+            self.send_json(ebay_live.configuration()); return
+        if u.path == "/ebay/live/callback":
+            q=parse_qs(u.query)
+            try:result=ebay_live.complete_authorisation((q.get("state") or [""])[0],(q.get("code") or [None])[0],(q.get("error") or [None])[0])
+            except (OSError,ValueError,TypeError,KeyError):result={"ok":False}
+            self.send_response(303);self.send_header("Location","/?ebayLive="+("connected" if result.get("ok") else "error"));self.send_header("Cache-Control","no-store");self.send_header("Referrer-Policy","no-referrer");self.send_header("Content-Length","0");self.end_headers();return
+        if u.path == "/api/opportunity-cex":
+            q=parse_qs(u.query)
+            try:result=opportunity_cex((q.get("q") or [""])[0],(q.get("id") or [None])[0])
+            except (ValueError,TypeError,OSError,URLError):result={"ok":False,"status":"CeX quote unavailable; keep the previous evidence."}
+            self.send_json(result);return
+        if u.path == "/api/photo-status":
+            self.send_json(item_identification.photo_status()); return
+        if u.path == "/ebay/oauth/callback":
+            q = parse_qs(u.query)
+            result = ebay_seller.complete_authorisation(
+                (q.get("state") or [""])[0],
+                (q.get("code") or [None])[0],
+                (q.get("error") or [None])[0],
+            )
+            self.send_response(303)
+            self.send_header("Location", "/?ebaySeller=" + ("connected" if result.get("ok") else "error"))
+            self.send_header("Cache-Control", "no-store")
+            self.send_header("Referrer-Policy", "no-referrer")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        if u.path == "/api/ebay-seller/status":
+            self.send_json(ebay_seller.configuration()); return
+        if u.path == "/api/market-observation":
+            p = parse_qs(u.query)
+            result = market_insights.observation((p.get("q") or [""])[0], (p.get("id") or [""])[0],
+                (p.get("grade") or ["cib"])[0], pc_call, pc_detail, ebay_browse_search,
+                infer_intent, candidate_allowed, PC_PRODUCTS, _cex_platforms, _cex_match_words)
+            self.send_json(result); return
+        if u.path == '/api/market-overview':
+            p=parse_qs(u.query)
+            self.send_json(market_overview.overview((p.get('category') or ['games'])[0],ebay_access_token));return
+        if u.path == '/api/identity-detail':
+            p=parse_qs(u.query)
+            self.send_json(market_overview.identity_detail((p.get('item') or [''])[0],ebay_access_token));return
+        if u.path == '/api/identity-search':
+            p=parse_qs(u.query);query=(p.get('q') or [''])[0].strip()
+            if p.get('barcode'):
+                try:
+                    code=item_identification.normalize_barcode(p['barcode'][0])
+                except ValueError as exc:
+                    self.send_json({'ok':False,'status':str(exc)},400);return
+                self.send_json(market_overview.identity_search(code,lambda _,limit:ebay_browse_search('',limit,gtin=code)));return
+            if not 2<=len(query)<=200:
+                self.send_json({'ok':False,'status':'Enter a product name (2–200 characters).'},400);return
+            self.send_json(market_overview.identity_search(query,ebay_browse_search));return
         if u.path == "/api/market-search":
-            p = parse_qs(u.query); q=(p.get("q") or [""])[0].strip(); barcode=(p.get("barcode") or [""])[0].strip(); selected_id=(p.get("id") or [""])[0].strip(); cex_grade=(p.get("cexGrade") or [""])[0].strip() or None; cex_id=(p.get("cexId") or [""])[0].strip() or None
-            lookup = pricecharting_lookup(q, barcode, selected_id)
-            if lookup.get("mode") == "refinements":
-                self.send_json({"query":q,"barcode":barcode,"marketValue":None,"confidence":"needs-refinement","needsRefinement":True,"intent":lookup.get("intent"),"refinements":lookup.get("refinements",[]),"reason":lookup.get("reason")}); return
-            if lookup.get("mode") == "candidates":
-                self.send_json({"query":q,"barcode":barcode,"marketValue":None,"confidence":"needs-confirmation","needsConfirmation":True,"intent":lookup.get("intent"),"candidates":lookup.get("candidates",[]),"reason":lookup.get("reason")}); return
-            pc = lookup.get("result", {})
-            identity = canonical_identity(q,pc,lookup.get("intent") or infer_intent(q)) if pc.get("ok") else None
-            ebay = ebay_browse_search(q, 12)
-            if ebay.get("ok"):
-                evidence = [{"provider":"eBay UK","status":"Live","currency":"GBP","marketplace":"EBAY_GB",
-                    "count":ebay.get("count"),"total":ebay.get("total"),"medianAsking":ebay.get("medianAsking"),
-                    "lowAsking":ebay.get("lowAsking"),"highAsking":ebay.get("highAsking"),
-                    "items":ebay.get("items",[])[:6],
-                    "detail":f"Live UK active listings: {ebay.get('count',0)} sampled. Median asking £{ebay.get('medianAsking'):.2f}." if ebay.get("medianAsking") is not None else "Live UK active listings found; no GBP asking-price summary available."}]
-            else:
-                evidence = [{"provider":"eBay UK","status":ebay.get("status","Unavailable"),"detail":ebay.get("detail","")}]
-
-            if pc.get("ok"):
-                pr = pc["prices"]
-                parts=[]
-                for label,key in (("Loose","loose-price"),("CIB","cib-price"),("New","new-price"),("Retail CIB buy","retail-cib-buy"),("Retail CIB sell","retail-cib-sell")):
-                    if pr.get(key) is not None: parts.append(f"{label} ${pr[key]:.2f}")
-                if pc.get("salesVolume") not in (None, ""): parts.append(f"Annual sales volume {pc['salesVolume']}")
-                evidence.append({"provider":"PriceCharting","status":"Live","currency":"USD","product":pc.get("product"),"console":pc.get("console"),
-                                 "prices":pr,"salesVolume":pc.get("salesVolume"),"productId":pc.get("id"),
-                                 "detail":f"Matched: {pc.get('product','Unknown')} — {pc.get('console','Unknown')}. " + " · ".join(parts)})
-                cex = cex_search(q, lookup.get("intent") or infer_intent(q), grade=cex_grade, identity=identity, selected_product_id=cex_id)
-                if cex.get("ok"):
-                    cparts=[]
-                    if cex.get("retail") is not None: cparts.append(f"retail £{cex['retail']:.2f}")
-                    if cex.get("cash") is not None: cparts.append(f"cash £{cex['cash']:.2f}")
-                    if cex.get("voucher") is not None: cparts.append(f"voucher £{cex['voucher']:.2f}")
-                    evidence.append({"provider":"CeX UK","status":"Live","currency":"GBP","product":cex.get("product"),"productId":cex.get("productId"),"retail":cex.get("retail"),"cash":cex.get("cash"),"voucher":cex.get("voucher"),"stock":cex.get("stock"),"grade":cex.get("grade"),"matchQuality":cex.get("matchQuality"),"selectedByUser":cex.get("selectedByUser",False),"identity":identity,"detail":f"Matched: {cex.get('product')}. " + " · ".join(cparts)})
-                    market_value = cex.get("retail")
-                    method = "CeX UK retail is the identity-validated benchmark for the selected grade. RetroHQ then adjusts that benchmark for the actual item's known completeness. Cash and voucher trade-in are evidence only and are never used as market value."
-                else:
-                    evidence.append({"provider":"CeX UK","status":cex.get("status","Unavailable"),"detail":cex.get("detail",""),"variants":cex.get("variants",[])})
-                    market_value = None
-                    method = "Live PriceCharting reference loaded. CeX pricing is awaiting a grade choice where multiple catalogue records exist; uncertain evidence is excluded from UK Market Value."
-            else:
-                evidence.append({"provider":"PriceCharting","status":pc.get("status","Unavailable"),"detail":pc.get("detail","")})
-                cex = cex_search(q, lookup.get("intent") or infer_intent(q), grade=cex_grade, selected_product_id=cex_id)
-                if cex.get("ok"):
-                    evidence.append({"provider":"CeX UK","status":"Live","currency":"GBP","product":cex.get("product"),"productId":cex.get("productId"),"retail":cex.get("retail"),"cash":cex.get("cash"),"voucher":cex.get("voucher"),"stock":cex.get("stock"),"grade":cex.get("grade"),"detail":f"Matched: {cex.get('product')}. CeX sells £{cex.get('sell'):.2f}" if cex.get("sell") is not None else f"Matched: {cex.get('product')}"})
-                    market_value=None
-                    method="CeX UK evidence loaded, but no single provider price is promoted to RetroHQ UK Market Value."
-                else:
-                    evidence.append({"provider":"CeX UK","status":cex.get("status","Unavailable"),"detail":cex.get("detail","")})
-                    market_value=None
-                    method = "No market value invented. Neither provider returned evidence that passed RetroHQ checks."
-            self.send_json({"query":q,"barcode":barcode,"marketValue":market_value,"confidence":"uk-retail-benchmark" if market_value is not None else ("reference-only" if pc.get("ok") else "unavailable"),"evidence":evidence,"method":method,"lockedIdentity":identity,"pricechartingProductId":pc.get("id") if pc.get("ok") else None}); return
+            try:
+                self.market_search(parse_qs(u.query))
+            except (BrokenPipeError, ConnectionResetError):
+                return
+            except Exception as error:
+                self.log_error("Market search failed (%s)", type(error).__name__)
+                self.send_json({"ok":False,"status":"Price lookup could not finish. Try again.","marketValue":None},502)
+            return
         if u.path == "/api/accessory-costs":
             p=parse_qs(u.query); platform=(p.get("platform") or [""])[0].strip(); colour=(p.get("colour") or [""])[0].strip()
             controller=cex_accessory_retail(platform,colour) if platform else {"ok":False,"status":"No platform","detail":"No platform supplied."}
@@ -587,14 +1333,15 @@ class H(SimpleHTTPRequestHandler):
             self.send_json(ebay_browse_search(q,12)); return
         if u.path == "/api/provider-status":
             self.send_json({"pricecharting": bool(os.environ.get("PRICECHARTING_API_TOKEN")),
-                            "ebay": bool(os.environ.get("EBAY_CLIENT_ID") and os.environ.get("EBAY_CLIENT_SECRET")),
-                            "ebayEnvironment":os.environ.get("EBAY_ENV","production"),
-                            "cex": True}); return
+                            "ebay": bool(_ebay_market_credentials().get("ok")),
+                            "ebayEnvironment":_ebay_market_credentials().get("environment","unavailable"),
+                            "cex": _cex_health["ok"] if _cex_health["checked"] else None,
+                            "cexStatus": _cex_health["status"]}); return
         super().do_GET()
 
 if __name__ == "__main__":
     port=int(os.environ.get("PORT","8006"))
-    print(f"RetroHQ Test 8.2 — Daily Operations + Market Expansion: http://localhost:{port}")
+    print(f"RetroHQ Test 8.3 — Sandbox Seller OAuth: http://localhost:{port}")
     print("PriceCharting token:", "loaded" if os.environ.get("PRICECHARTING_API_TOKEN") else "MISSING")
     print("eBay credentials:", "loaded" if os.environ.get("EBAY_CLIENT_ID") and os.environ.get("EBAY_CLIENT_SECRET") else "MISSING", "·", os.environ.get("EBAY_ENV","production"))
     ThreadingHTTPServer(("0.0.0.0",port),H).serve_forever()

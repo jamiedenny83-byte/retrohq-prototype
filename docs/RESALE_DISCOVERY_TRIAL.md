@@ -1,0 +1,9 @@
+# Self-populating resale discovery
+
+Open Resale opportunities in the normal workspace. The page runs nine starter searches across Games, Consoles and Accessories without reading previous stock or watchlist entries. It shows up to six deduplicated GBP fixed-price candidates in each group, with asking price, known/unknown postage, check time and original eBay link. Refresh live offers runs another bounded search; there is no background polling.
+
+Choose **Compare routes** on an eBay listing to check CeX cash or an in-store sale. Use **Check a CeX purchase** for a CeX retail purchase followed by an eBay or in-store sale. Select the exact CeX product where relevant. eBay and in-store exits use an entered sale estimate with evidence and selling costs. Each review shows purchase price, proceeds, total costs when complete, and the resulting estimate. The £2 default under Ranking settings is a minimum threshold. Missing costs keep a route out of rankings, and multicart or reproduction wording requires separate edition review.
+
+Production Browse market access is required for real discovery. Seller-account sign-in is separate and does not itself enable market search. If access fails or only Sandbox is configured, the page explains this and creates no fake deals. Existing session results retain their original check times on a failed refresh. Starter searches are stated on screen; this is not a scan of the entire marketplace. The offline demo does not contact providers.
+
+Test from an empty research watchlist, confirm candidates appear when production Browse works, review one exact CeX match and costs, refresh without duplicates, and simulate unavailable access. Then test the real seller connection before the next streamlining batch. Real access and account acceptance must be checked in the existing private Codespace.
