@@ -63,6 +63,12 @@ function validate(state){
  }
  for(const k of ['offerPct','storeCreditBonus','greenMargin','yellowMargin'])if(!Number.isFinite(state.settings[k]))fail('Invalid business settings.');
  for(const fee of Object.values(state.settings.fees))if(!object(fee)||!['fixed','percent'].includes(fee.type)||!Number.isFinite(fee.value)||fee.value<0)fail('Invalid fee settings.');
+ if(state.settings.acquisitionDefaults!==undefined){
+  const defaults=state.settings.acquisitionDefaults;
+  if(!object(defaults)||Object.values(defaults).some(preset=>!object(preset)||
+   (preset.buy!==null&&(!Number.isFinite(preset.buy)||preset.buy<0))||
+   [preset.area,preset.shelf].some(value=>typeof value!=='string'||value.length>80)))fail('Invalid product defaults.');
+ }
  if(!Number.isFinite(state.creditIssued))fail('Invalid credit total.');
  const sync=state.ebaySync;
  if(sync!=null&&(!object(sync)||!Array.isArray(sync.lines)))fail('Invalid sales import history.');
