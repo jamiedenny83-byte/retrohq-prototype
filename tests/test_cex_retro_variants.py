@@ -32,6 +32,20 @@ class RetroVariantTests(unittest.TestCase):
         self.assertEqual(server.infer_intent('Boxed In PS4 Game Unboxed')['gameTitle'],'boxed in')
         self.assertEqual(server.infer_intent('SNES Boxed')['type'],'hardware')
 
+    def test_listing_descriptions_keep_exact_title_and_platform(self):
+        examples=[
+            'Starwing SNES Super Nintendo Game PAL Version Complete Boxed w. Inserts & Manual',
+            'Starwing SNES Super Nintendo Pal Cartridge Only',
+            'STARWING SUPER NINTENDO / SNES GAME * BOXED WITH MANUAL * VGC *',
+            'Starwing SNES Super Nintendo UK PAL Boxed Manual Game',
+        ]
+        for query in examples:
+            with self.subTest(query=query):
+                intent=server.infer_intent(query)
+                self.assertEqual((intent['gameTitle'],intent['platform']),('starwing','SNES'))
+        special=server.infer_intent("Silent Hill 2 Director's Cut PS2 Boxed with Manual")
+        self.assertEqual(special['gameTitle'],'silent hill 2 director s cut')
+
     def test_krazy_racers_shows_all_exact_completeness_variants_regardless_of_console_grade(self):
         rows=[hit('Konami Krazy Racers, '+suffix,str(n)) for n,suffix in enumerate(['Unboxed','w/o Manual, Boxed','w/ Manual, Boxed','Mint'])]
         for grade in ['Unboxed','Boxed',None]:

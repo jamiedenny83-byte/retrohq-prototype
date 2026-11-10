@@ -749,9 +749,13 @@ def _platform_product_kind(query, phrases):
     q = " ".join(normalize_words(query))
     platform_phrases = sorted(phrases, key=len, reverse=True)
     platforms = "|".join(re.escape(phrase) for phrase in platform_phrases)
-    # In listing titles, a grade after the platform or format is metadata.
-    # Keep title words before the platform and keep the format marker.
-    q = re.sub(r"\b((?:" + platforms + r")(?: (?:game|disc|disk|cartridge|cart))?) (?:boxed|unboxed)$", r"\1", q)
+    # A trailing run of familiar listing descriptors belongs to condition and
+    # contents. Keep the title, format marker and any named edition.
+    descriptors = (r"pal(?: version)?|uk(?: pal)?|boxed|unboxed|cib|complete(?: in box)?|"
+                   r"(?:with|without|w|w o) (?:manual|inserts(?: and)? manual|inserts)|"
+                   r"(?:disc|disk|cartridge|cart) only|(?:fully )?tested(?: and working)?|manual|game|vgc")
+    q = re.sub(r"\b((?:" + platforms + r")(?: (?:game|disc|disk|cartridge|cart))?)(?: (?:" +
+               descriptors + r"))+$", r"\1", q)
     remainder = q
     for phrase in platform_phrases:
         if re.search(r"\b" + re.escape(phrase) + r"\b", remainder):
