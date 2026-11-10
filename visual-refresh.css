@@ -67,3 +67,15 @@ html[data-theme] #menu{color:var(--hq-ink)}
 .hq-meter-empty{background:var(--hq-line)}
 .hq-meter small{display:block}
 @media(max-width:620px){.hq-store-summary{grid-template-columns:1fr;gap:12px}}
+
+/* Put the matched item and its prices ahead of capture and buying details. */
+.bc-result{margin:12px 0}
+.bc-result-head{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.bc-result-head img{width:72px;height:88px;object-fit:contain;border-radius:8px;background:var(--hq-soft)}
+.bc-result-head>div:first-of-type{flex:1 1 160px;min-width:0;overflow-wrap:anywhere}
+.bc-result-head h3,.bc-result-head p{margin:0}
+.bc-result-head .btn{margin:3px}
+.bc-result .cex-variant-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,240px),1fr));gap:8px}
+.bc-result .cex-variant-card{margin:0;min-width:0;overflow-wrap:anywhere}
+.bc-result .cex-select{padding:8px 10px}
+.bc-result .notice{margin:10px 0}

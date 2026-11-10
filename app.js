@@ -587,14 +587,14 @@ function ebayMarketListings(evidence, expanded=false, allowChoice=false){
  const live=ebay.status==='Live';
  const listings=live?(ebay.items||[]).filter(row=>row.currency==='GBP'&&Number.isFinite(row.price)&&row.price>0&&RetroOverview.safeUrl(row.itemWebUrl)):[];
  const session=allowChoice?window.buyCheckSession:null;
- const canChoose=RetroCheckout.available(session?.item);
+ const canChoose=Boolean(session&&(!session.item||RetroCheckout.available(session.item)));
  if(canChoose)session.ebayOptions=listings;
  const title=live?'eBay UK active listings'+(ebay.count?' · '+ebay.count+' sampled':''):'eBay UK market search · '+(ebay.status||'Unavailable');
  return `<details class="evidence-details" ${expanded?'open':''}><summary>${escapeText(title)}</summary><div class="evidence-panel"><p>${escapeText(ebay.detail||'')}${live?' Active asking prices are shown for comparison.':''}</p>${listings.map((row,index)=>`<div class="row"><a href="${escapeText(row.itemWebUrl)}" target="_blank" rel="noopener noreferrer">${escapeText(row.title)}</a><div><strong>${money(row.price)} asking</strong>${canChoose?` <button type="button" class="btn secondary compact" onclick="chooseEbayAsking(${index})">Use asking price</button>`:''}</div></div>`).join('')}</div></details>`;
 }
 window.chooseEbayAsking=index=>{
  const session=window.buyCheckSession, row=session?.ebayOptions?.[index], field=$('#bcOverride');
- if(!row||!field||$('#autoSearchBtn')?.disabled||!RetroCheckout.available(session.item))return;
+ if(!row||!field||$('#autoSearchBtn')?.disabled||session.item&&!RetroCheckout.available(session.item))return;
  session.ebayComparable={title:row.title,itemWebUrl:row.itemWebUrl,price:row.price,currency:'GBP',checkedAt:row.checkedAt||null};
  field.value=row.price.toFixed(2);
  buyCheckCalc();
@@ -639,30 +639,45 @@ function importedPriceSearch(item){
  return {title:specific(['game name','game title','video game name','product name']),
   platform:specific(['platform','compatible platform'])};
 }
-window.buyCheck=(item=null)=>{
- acquisitionPhoto=null;photoSearchNote='';
+window.buyCheck=(item=null,scan=null)=>{
+ acquisitionPhoto=scan?.image||null;photoSearchNote=scan?.query||'';
  const imported=item?.importedFrom==='ebay-production'?importedPriceSearch(item):null;
  const platform=item?.identity?.platform||imported?.platform||item?.platform||'';
  const title=item?.identity?.confirmedProduct||imported?.title||item?.title||'';
- const query=[title,platform&&!title.toLowerCase().includes(platform.toLowerCase())?platform:''].filter(Boolean).join(' ');
+ const query=scan?.query||[title,platform&&!title.toLowerCase().includes(platform.toLowerCase())?platform:''].filter(Boolean).join(' ');
  const seed=item?{q:query,barcode:item.barcode||'',pcId:item.identity?.pricechartingProductId||item.valuation?.identity?.pricechartingProductId||null,cexId:item.cexProductId||null}:null;
  const condition=item?.condition||'Good';
  const readOnly=item&&!RetroCheckout.available(item);
  window.buyCheckSession={item,seed,pcId:null,cexId:null,cexVariants:[],condition};
  open(`<h2>${item?'Check price':'Identify → Decide → Acquire'}</h2>${item?`<p><strong>${escapeText(item.title)}</strong> · HQ value ${knownMoney(independentMarketValue(item))} · eBay listed ${knownMoney(ebayListedPrice(item))}</p>`:'<button class="link-button" onclick="quickBuy()">Quick entry without research</button>'}${item?'<p class="muted">Compare CeX prices and eBay asking prices. If the listing title is long, search using the product name and platform or model.</p>':'<p class="muted">Type or scan the item. RetroHQ handles identification, CeX grading and live evidence in the background.</p>'}
-<div class="counter-search"><label for="bcDesc">${item?'Product to price':'What is the item?'}</label><div class="counter-search-row"><input id="bcDesc" class="input counter-input" value="${escapeText(query)}" autofocus oninput="buyLookupChanged()" placeholder="e.g. PS3 Slim 320GB Scarlet Red" onkeydown="if(event.key==='Enter'){event.preventDefault();autoMarketSearch();}"><button id="autoSearchBtn" class="btn primary" onclick="autoMarketSearch()">Search</button></div><small class="muted">Press Enter to search. You will only be asked to confirm when RetroHQ is genuinely unsure.</small></div>
-<button class="btn secondary" onclick="photoIdentify()">Photo search</button><button class="btn secondary" onclick="scanBarcode()">Scan barcode</button><small class="muted">Taking or selecting a photo automatically sends it to OpenAI for identification; API charges apply.</small><div class="formgrid buy-basics">${item?'':'<div class="field"><label>Purchase price (£)</label><input id="bcAsk" class="input" type="number" step="0.01" placeholder="Enter amount paid" oninput="buyCheckCalc()"></div>'}<div class="field"><label>Barcode / EAN (optional)</label><input id="bcBarcode" class="input" inputmode="numeric" value="${escapeText(item?.barcode||'')}" oninput="buyLookupChanged()" onkeydown="if(event.key==='Enter'){event.preventDefault();autoMarketSearch();}"></div></div>
-<div class="buy-grade-card"><div><label>Condition</label><div class="quality-buttons"><button type="button" data-quality="Excellent" onclick="setBuyCondition('Excellent')">Excellent</button><button type="button" data-quality="Good" onclick="setBuyCondition('Good')">Good</button><button type="button" data-quality="Poor" onclick="setBuyCondition('Poor')">Poor</button></div></div><div><label>Included</label><div class="accessory-checks"><label id="bcBoxWrap"><input id="bcBox" type="checkbox" ${item?.accessories?.box?'checked':''} onchange="this.dataset.userSet='1';buyAccessoryChanged('box')"> <span id="bcBoxLabel">Box</span></label><label id="bcControllerWrap"><input id="bcController" type="checkbox" ${item?.accessories?.controller?'checked':''} onchange="buyAccessoryChanged('controller')"> Controller</label><label id="bcCablesWrap"><input id="bcCables" type="checkbox" ${item?.accessories?.cables?'checked':''} onchange="buyAccessoryChanged('cables')"> Cables</label></div></div><div id="bcGradeHint" class="grade-hint"></div></div>
-<div id="autoSearchStatus" class="auto-status">Ready — type the item and press Enter.</div><div id="autoEvidence"></div><div id="bcLinks"></div>
+<div class="scan-actions"><button class="btn primary" onclick="photoIdentify()">Photo search</button><button class="btn secondary" onclick="scanBarcode()">Scan barcode</button>${item?'':`<button class="btn secondary" onclick="document.getElementById('bcNextPhoto').click()">Scan next</button><input id="bcNextPhoto" type="file" accept="image/*" capture="environment" hidden onchange="queueSourcingPhoto(this.files[0]);this.value=''">`}</div>
+<small class="muted">Photo search sends the image to OpenAI for identification. API charges apply.</small>
+
+<section class="card bc-result" aria-label="Price result"><div id="bcResultHead"></div><div id="autoSearchStatus" class="auto-status" role="status">Ready to check a price.</div><div id="autoEvidence"></div></section><div id="bcSourcingQueue" aria-live="polite"></div>
+<details id="bcSearchTools" class="card" ${!query?'open':''}><summary>Search by title or barcode</summary><div class="counter-search"><label for="bcDesc">${item?'Product to price':'What is the item?'}</label><div class="counter-search-row"><input id="bcDesc" class="input counter-input" value="${escapeText(query)}" autofocus oninput="buyLookupChanged()" placeholder="e.g. PS3 Slim 320GB Scarlet Red" onkeydown="if(event.key==='Enter'){event.preventDefault();autoMarketSearch();}"><button id="autoSearchBtn" class="btn primary" onclick="autoMarketSearch()">Search</button></div><small class="muted">Press Enter to search. You will only be asked to confirm when RetroHQ is genuinely unsure.</small></div>
+<div class="formgrid buy-basics"><div class="field"><label>Barcode / EAN (optional)</label><input id="bcBarcode" class="input" inputmode="numeric" value="${escapeText(item?.barcode||'')}" oninput="buyLookupChanged()" onkeydown="if(event.key==='Enter'){event.preventDefault();autoMarketSearch();}"></div></div></details>
+<details class="card"><summary>Condition and contents</summary><div class="buy-grade-card"><div><label>Condition</label><div class="quality-buttons"><button type="button" data-quality="Excellent" onclick="setBuyCondition('Excellent')">Excellent</button><button type="button" data-quality="Good" onclick="setBuyCondition('Good')">Good</button><button type="button" data-quality="Poor" onclick="setBuyCondition('Poor')">Poor</button></div></div><div><label>Included</label><div class="accessory-checks"><label id="bcBoxWrap"><input id="bcBox" type="checkbox" ${item?.accessories?.box?'checked':''} onchange="this.dataset.userSet='1';buyAccessoryChanged('box')"> <span id="bcBoxLabel">Box</span></label><label id="bcControllerWrap"><input id="bcController" type="checkbox" ${item?.accessories?.controller?'checked':''} onchange="buyAccessoryChanged('controller')"> Controller</label><label id="bcCablesWrap"><input id="bcCables" type="checkbox" ${item?.accessories?.cables?'checked':''} onchange="buyAccessoryChanged('cables')"> Cables</label></div></div><div id="bcGradeHint" class="grade-hint"></div></div></details>
+<div id="bcLinks"></div>${item?'':'<div class="field"><label>Purchase price (£)</label><input id="bcAsk" class="input" type="number" step="0.01" placeholder="Enter amount paid" oninput="buyCheckCalc()"></div>'}
 <div class="formgrid value-fields"><div class="field"><label>RetroHQ UK Market Value</label><input id="bcMarket" class="input" type="number" readonly placeholder="Waiting for live UK evidence"></div><div class="field"><label>Manual override (optional)</label><input id="bcOverride" name="retrohq_market_override" class="input" type="number" step="0.01" autocomplete="off" placeholder="Leave blank to use RetroHQ value" oninput="buyCheckSession.ebayComparable=null;buyCheckCalc()"><small id="overrideHint" class="muted" aria-live="polite">Only use this when you deliberately want to replace RetroHQ's calculated value.</small></div></div>
-<details class="card" ${item?'hidden':''}><summary>Storage and buying trip</summary><div class="formgrid"><label>Area<input class="input" id="bcArea"></label><label>Shelf<input class="input" id="bcShelf"></label><label>Buying trip / lot<input class="input" id="bcBatch" list="batchNames"><datalist id="batchNames">${[...new Set(state.items.map(i=>i.batchName).filter(Boolean))].map(n=>'<option value="'+escapeText(n)+'">').join('')}</datalist></label><label>Category<select class="select" id="bcCategory"><option>Video Game</option><option>Console</option><option>Toy</option><option>Clothing</option><option>Trading Card</option><option>Accessory</option><option>Collectible</option></select></label></div></details><div id="acquisitionPhotoSummary"></div>${item?'':buyingCostsHtml("bc")+'<div id="bcDecision" class="decision-panel"></div>'}<div id="acquireError" role="status"></div><div class="modal-actions acquire-actions">${item?'<button class="btn secondary" onclick="closeModal()">Close</button>'+(readOnly?'':(nextImportedPriceCheck(item)?'<button class="btn secondary" onclick="saveExistingValue(true)">Save &amp; check next</button>':'')+'<button class="btn primary" onclick="saveExistingValue()">Save value</button>'):'<button class="btn secondary" onclick="closeModal()">Decline</button><button class="btn secondary" onclick="saveAcquisition(true)">Save & next</button><button class="btn primary" onclick="saveAcquisition(false)">Save item</button>'}</div>`);
+<details class="card" ${item?'hidden':''}><summary>Storage and buying trip</summary><div class="formgrid"><label>Area<input class="input" id="bcArea"></label><label>Shelf<input class="input" id="bcShelf"></label><label>Buying trip / lot<input class="input" id="bcBatch" list="batchNames"><datalist id="batchNames">${[...new Set(state.items.map(i=>i.batchName).filter(Boolean))].map(n=>'<option value="'+escapeText(n)+'">').join('')}</datalist></label><label>Category<select class="select" id="bcCategory"><option>Video Game</option><option>Console</option><option>Toy</option><option>Clothing</option><option>Trading Card</option><option>Accessory</option><option>Collectible</option></select></label></div></details>${item?'':buyingCostsHtml("bc")+'<div id="bcDecision" class="decision-panel"></div>'}<div id="acquireError" role="status"></div><div class="modal-actions acquire-actions">${item?'<button class="btn secondary" onclick="closeModal()">Close</button>'+(readOnly?'':(nextImportedPriceCheck(item)?'<button class="btn secondary" onclick="saveExistingValue(true)">Save &amp; check next</button>':'')+'<button class="btn primary" onclick="saveExistingValue()">Save value</button>'):'<button class="btn secondary" onclick="closeModal()">Decline</button><button class="btn secondary" onclick="saveAcquisition(true)">Save & next</button><button class="btn primary" onclick="saveAcquisition(false)">Save item</button>'}</div>`);
  if(item?.accessories)$('#bcBox').dataset.userSet='1';
  if(item?.identity)updateCompletenessUI(item.identity);
  $$('.quality-buttons button').forEach(button=>button.classList.toggle('active',button.dataset.quality===condition));
- renderBuyGradeHint();renderBuyLinks();buyCheckCalc();modal.scrollTop=0;
- if(item&&!demoMode&&(query||item.barcode))autoMarketSearch();
+ renderBuyGradeHint();renderBuyLinks();buyCheckCalc();renderPriceHeader();renderSourcingQueue();modal.scrollTop=0;
+ if(scan?.result)runConfirmedSearch({prefetched:scan.result});
+ else if((scan?.query&&scan.status!=='Review match')||(item&&!demoMode&&(query||item.barcode)))autoMarketSearch();
+ else if(scan){editPhotoDescription();$('#autoSearchStatus').textContent=scan.error||'Check the photo suggestion and search.';}
 };
 
+function renderPriceHeader(identity,evidence=[]){
+ const box=$('#bcResultHead');
+ if(!box)return;
+ const name=identity?.confirmedProduct||$('#bcDesc')?.value.trim()||photoSearchNote||'Price check';
+ const platform=identity?.platform;
+ const ebay=(evidence||[]).find(row=>row.provider==='eBay UK'&&row.status==='Live');
+ const range=Number.isFinite(ebay?.lowAsking)&&Number.isFinite(ebay?.highAsking)?money(ebay.lowAsking)+'–'+money(ebay.highAsking):null;
+ box.innerHTML=`<div class="bc-result-head">${RetroBuying.validPhoto(acquisitionPhoto)?`<img src="${acquisitionPhoto}" alt="Photo used for this price check">`:''}<div><h3>${escapeText(name)}</h3>${platform?`<p>${escapeText(platform)}</p>`:''}${range?`<p><strong>eBay UK asks ${range}</strong> · ${escapeText(ebay.count)} sampled</p>`:''}</div><div><button class="btn secondary" onclick="editPhotoDescription()">Correct match</button>${acquisitionPhoto?'<button class="btn secondary" onclick="removeAcquisitionPhoto()">Remove photo</button>':''}</div></div>`;
+}
 function escapeText(value){return String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));}
 function identityCard(i){if(!i)return '';const attrs=i.attributes||{};const detail=[i.platform,attrs.revision,attrs.storage,attrs.colour].filter(Boolean);return `<div class="identity-lock"><div><strong>🔒 RetroHQ Identity Locked</strong><small>${i.confirmedProduct||i.label||'Confirmed item'}</small></div>${detail.length?`<div class="identity-tags">${detail.map(x=>`<span>${x}</span>`).join('')}</div>`:''}</div>`;}
 function cexTradeText(value,origin){return value==null?'Unavailable':(origin==='indicative-rate'?'≈':'')+money(value);}
@@ -720,7 +735,7 @@ function applySmartValuation(){
  s.valuation={benchmark,cexGrade:s.cexCatalogueGrade||null,cexProduct:s.cexCatalogueProduct||null,benchmarkLabel:`CeX ${cexGradeForBuyCheck()} retail benchmark`,adjustments,unresolved,finalValue,acquisitionValue:finalValue,recommendedMax:Math.round(finalValue*(state.settings.offerPct/100)*100)/100,confidence:unresolved.length?'partial':adjustments.length?'adjusted':'benchmark',source:'CeX UK + RetroHQ item adjustments',timestamp:today(),profile:p,identity:s.lockedIdentity||null};
  if($('#bcMarket'))$('#bcMarket').value=finalValue.toFixed(2);renderSmartValuation();renderBuyGradeHint();buyCheckCalc();
 }
-window.renderMarketResult=async(d,current)=>{const status=$('#autoSearchStatus'),ev=$('#autoEvidence');window.buyCheckSession.evidence=d.evidence||[];if(d.pricechartingProductId)window.buyCheckSession.pcId=String(d.pricechartingProductId);if(d.lockedIdentity||d.provisionalIdentity)updateCompletenessUI(d.lockedIdentity||d.provisionalIdentity);
+window.renderMarketResult=async(d,current)=>{const status=$('#autoSearchStatus'),ev=$('#autoEvidence');window.buyCheckSession.evidence=d.evidence||[];renderPriceHeader(d.lockedIdentity||d.provisionalIdentity,d.evidence);if(d.pricechartingProductId)window.buyCheckSession.pcId=String(d.pricechartingProductId);if(d.lockedIdentity||d.provisionalIdentity)updateCompletenessUI(d.lockedIdentity||d.provisionalIdentity);
  if(d.needsRefinement){window.buyCheckSession.benchmark=null;window.buyCheckSession.valuation=null;$('#bcMarket').value='';status.textContent='One quick question — choose the console generation.';ev.innerHTML=`<div class="evidence-panel"><h3>Which one is it?</h3><div class="candidate-list">${(d.refinements||[]).map(r=>`<button class="candidate-card" onclick="refineMarketSearch('${String(r.query).replace(/'/g,'')}')"><strong>${r.label}</strong><small>Use this generation</small></button>`).join('')}</div></div>${ebayMarketListings(d.evidence,false,true)}`;buyCheckCalc();return;}
  if(d.needsConfirmation){window.buyCheckSession.benchmark=null;window.buyCheckSession.valuation=null;$('#bcMarket').value='';status.classList.add('action-required');status.textContent=photoSearchNote?'Photo identified — confirm the catalogue edition/platform below.':'RetroHQ found more than one credible match.';ev.innerHTML=`<div class="evidence-panel"><h3>Which item is this?</h3><div class="candidate-list">${(d.candidates||[]).slice(0,6).map(c=>`<button class="candidate-card" onclick="selectMarketCandidate('${String(c.id).replace(/'/g,'')}')"><strong>${c['product-name']||'Unknown product'}</strong><span>${c['console-name']||'Unknown platform'}</span><small>Confirm this item →</small></button>`).join('')}</div></div>${ebayMarketListings(d.evidence,false,true)}`;buyCheckCalc();return;}
  status.classList.remove('action-required');if($('#bcCategory')&&d.lockedIdentity?.type==='hardware')$('#bcCategory').value='Console';window.buyCheckSession.lockedIdentity=d.lockedIdentity||null;window.buyCheckSession.benchmark=d.marketValue!=null?Number(d.marketValue):null;window.buyCheckSession.evidence=d.evidence||[];renderBuyGradeHint();
@@ -735,7 +750,7 @@ window.renderMarketResult=async(d,current)=>{const status=$('#autoSearchStatus')
  const pcPairs=[['Loose reference','loose-price'],['Complete / CIB reference','cib-price'],['New reference','new-price']].filter(([,key])=>pcPrice[key]!=null&&pcPrice[key]>0);
  const priceReference=pcRecord?`<div class="evidence-panel"><strong>✓ PriceCharting identity confirmed: ${escapeText(pcRecord.product||'Game')} — ${escapeText(pcRecord.console||'Platform not specified')}</strong><small class="muted">PriceCharting reference data (US dollars). Not a UK resale valuation.</small><div class="cex-price-grid">${pcPairs.map(([label,key])=>`<span><small>${label}</small><b>${moneyUSD(pcPrice[key])}</b></span>`).join('')}${pcRecord.salesVolume!=null?`<span><small>Annual sales volume</small><b>${escapeText(pcRecord.salesVolume)}</b></span>`:''}</div>${!pcPairs.length?'<small class="muted">No PriceCharting price for this edition.</small>':''}</div>`:'';
  const noCex=cexAction&&cexAction.status!=='Live'&&!cexAction.variants?.length?
-   `<div class="notice"><strong>${escapeText(cexAction.status||'No CeX match')}</strong><p>${escapeText(cexAction.detail||'')}</p><p>Check the product title and platform, scan its barcode or review the UK listings. Enter a manual value if you have a verified price.</p><button class="btn secondary" onclick="document.getElementById('bcOverride').focus()">Enter verified value</button> ${window.buyCheckSession.cexId?'<button class="btn secondary" onclick="changeCexMatch()">Search CeX matches again</button>':''}</div>`:'';
+   `<div class="notice"><strong>${escapeText(cexAction.status||'No CeX match')}</strong><p>${escapeText(cexAction.detail||'')}</p><p>Try the title and platform printed on the item, or scan its barcode.</p><button class="btn secondary" onclick="editPhotoDescription()">Shorten search</button> <button class="btn secondary" onclick="scanBarcode()">Scan barcode</button> <button class="btn secondary" onclick="document.getElementById('bcOverride').focus()">Enter verified value</button> ${window.buyCheckSession.cexId?'<button class="btn secondary" onclick="changeCexMatch()">Search CeX matches again</button>':''}</div>`:'';
  const cexPrices=cexAction?.status==='Live'?
    `<div class="cex-price-grid"><span><small>CeX retail</small><b>${cexAction.retail!=null?money(cexAction.retail):'Unavailable'}</b></span><span><small>CeX cash trade-in</small><b>${cexTradeText(cexAction.cash,cexAction.cashSource)}</b></span><span><small>CeX voucher trade-in</small><b>${cexTradeText(cexAction.voucher,cexAction.voucherSource)}</b></span></div>`+
    ((cexTradeHint(cexAction.cashSource)||cexTradeHint(cexAction.voucherSource))?
@@ -743,7 +758,7 @@ window.renderMarketResult=async(d,current)=>{const status=$('#autoSearchStatus')
  const cexPrompt=d.marketValue==null&&cexAction?.variants?.length?cexVariantCards(cexAction.variants):
    d.marketValue==null&&cexAction?.status==='Live'&&cexAction.productId?
    `<button class="btn primary" onclick="chooseCexVariant('${String(cexAction.productId).replace(/'/g,'')}','${String(cexAction.grade||'').replace(/'/g,'')}')">Confirm CeX record to use UK retail price</button>`:'';
- ev.innerHTML=`${cexPrompt?'<div class="action-required"><strong>Action needed — confirm the matching edition</strong>'+cexPrompt+'</div>':''}${noCex}${ebayMarketListings(d.evidence,Boolean(noCex),true)}<details class="evidence-details"><summary>View price evidence</summary>${priceReference}${cexPrices}<div class="evidence-panel"><div id="valuationBreakdown"></div>${identityCard(d.lockedIdentity)}${(d.evidence||[]).filter(row=>row.provider!=='eBay UK').map(evidenceRow).join('')}<small class="muted method-note">${d.method||''}</small></div></details>`;
+ ev.innerHTML=`${cexPrompt?'<div class="action-required"><strong>Action needed — choose the edition or contents</strong>'+cexPrompt+'</div>':''}${cexPrices}${noCex}${ebayMarketListings(d.evidence,Boolean(noCex),true)}<details class="evidence-details"><summary>View price evidence</summary>${priceReference}<div class="evidence-panel"><div id="valuationBreakdown"></div>${identityCard(d.lockedIdentity)}${(d.evidence||[]).filter(row=>row.provider!=='eBay UK'&&!(cexPrompt&&row.provider==='CeX UK')).map(evidenceRow).join('')}<small class="muted method-note">${d.method||''}</small></div></details>`;
  const session=window.buyCheckSession;
  const accessoryCosts=await loadAccessoryCosts(d.lockedIdentity||d.provisionalIdentity,session.condition);
  if(current()){session.accessoryCosts=accessoryCosts;applySmartValuation();}
@@ -756,9 +771,9 @@ window.buyLookupChanged=()=>{
  const status=$('#autoSearchStatus');
  status.classList.remove('action-required');status.textContent='Ready to search.';
  $('#autoSearchBtn').disabled=false;
- renderBuyLinks();buyCheckCalc();
+ renderPriceHeader();renderBuyLinks();buyCheckCalc();
 };
-window.runConfirmedSearch=async({cexId=null,cexGrade=null}={})=>{
+window.runConfirmedSearch=async({cexId=null,cexGrade=null,prefetched=null}={})=>{
  const q=$('#bcDesc')?.value.trim()||'',barcode=$('#bcBarcode')?.value.trim()||'';
  const session=window.buyCheckSession,status=$('#autoSearchStatus'),evidence=$('#autoEvidence'),button=$('#autoSearchBtn');
  if(!session||!button)return;
@@ -774,14 +789,18 @@ window.runConfirmedSearch=async({cexId=null,cexGrade=null}={})=>{
   if(session.pcId)params.set('id',session.pcId);
   if(cexId)params.set('cexId',cexId);
   if(session.manualCexChoice)params.set('cexChoose','1');
-  const response=await fetch('/api/market-search?'+params),data=await response.json();
+  const data=prefetched||await loadPriceLookup(params);
   if(!current())return;
-  if(!response.ok||data.ok===false)throw Error(data.status||'Market lookup failed.');
   await renderMarketResult(data,current);
  }catch(error){
   if(current()){status.textContent='Market lookup unavailable.';evidence.textContent=error.message;}
  }finally{if(current())button.disabled=false;}
 };
+async function loadPriceLookup(params){
+ const response=await fetch('/api/market-search?'+params),data=await response.json();
+ if(!response.ok||data.ok===false)throw Error(data.status||'Market lookup failed.');
+ return data;
+}
 window.autoMarketSearch=()=>{
  buyLookupChanged();
  const session=window.buyCheckSession,seed=session?.seed;
@@ -799,7 +818,7 @@ window.clearBuyOverride=()=>{const o=$('#bcOverride');if(o)o.value='';if(window.
 window.setBuyCondition=async(condition)=>{window.buyCheckSession=window.buyCheckSession||{};window.buyCheckSession.condition=condition;[...document.querySelectorAll('.quality-buttons button')].forEach(b=>b.classList.toggle('active',b.dataset.quality===condition));clearBuyOverride();renderBuyGradeHint();buyCheckCalc();if(window.buyCheckSession.pcId||window.buyCheckSession.evidence?.some(x=>x.provider==='CeX UK')){window.buyCheckSession.cexId=null;await runConfirmedSearch({cexGrade:cexGradeForBuyCheck()});}else applySmartValuation();};
 window.buyAccessoryChanged=async(kind)=>{clearBuyOverride();renderBuyGradeHint();if(kind==='box'&&(window.buyCheckSession?.pcId||window.buyCheckSession?.evidence?.some(x=>x.provider==='CeX UK'))){window.buyCheckSession.cexId=null;await runConfirmedSearch({cexGrade:cexGradeForBuyCheck()});return;}applySmartValuation();};
 
-window.renderBuyLinks=()=>{const q=($('#bcDesc')?.value||'').trim();const box=$('#bcLinks');if(!box)return;box.innerHTML=q?`<div class="live-research"><strong>Live UK research</strong><div class="research-buttons"><a class="btn secondary" target="_blank" rel="noopener" href="${ebayUrl(q,false)}">eBay UK active ↗</a><a class="btn secondary" target="_blank" rel="noopener" href="${ebayUrl(q,true)}">eBay UK sold ↗</a><a class="btn secondary" target="_blank" rel="noopener" href="${cexUrl(q)}">CeX UK ↗</a><a class="btn secondary" target="_blank" rel="noopener" href="${googleUrl(q)}">Google UK ↗</a></div><small class="muted">These open the real provider search using your description. Provider pages open in a new tab.</small></div>`:`<p class="muted">Enter a description to generate live research links.</p>`;};
+window.renderBuyLinks=()=>{const q=($('#bcDesc')?.value||'').trim();const box=$('#bcLinks');if(!box)return;box.innerHTML=q?`<details class="live-research"><summary>More price research</summary><div class="research-buttons"><a class="btn secondary" target="_blank" rel="noopener" href="${ebayUrl(q,false)}">eBay UK active ↗</a><a class="btn secondary" target="_blank" rel="noopener" href="${ebayUrl(q,true)}">eBay UK sold ↗</a><a class="btn secondary" target="_blank" rel="noopener" href="https://www.ebay.co.uk/sh/research">eBay Product Research ↗</a><a class="btn secondary" target="_blank" rel="noopener" href="${cexUrl(q)}">CeX UK ↗</a><a class="btn secondary" target="_blank" rel="noopener" href="${googleUrl(q)}">Google UK ↗</a></div><small class="muted">These open the real provider search using your description. Provider pages open in a new tab.</small></details>`:`<p class="muted">Enter a description to generate live research links.</p>`;};
 
 window.buyCheckCalc=()=>{const hint=$('#overrideHint');const chosen=window.buyCheckSession?.ebayComparable;if(hint)hint.textContent=chosen?money(chosen.price)+' selected from eBay UK · '+chosen.title+'. Asking price only. Save value to apply it.':$('#bcOverride')?.value.trim()?'Manual selling estimate active. Check it against market evidence.':'CeX retail is a reference benchmark, not a guaranteed eBay sale price.';renderBuyingDecision('bc');};
 window.recordPass=()=>{const d=$('#bcDesc').value.trim(),raw=$('#bcAsk').value.trim(),ask=raw===''?null:Number(raw);if(!d)return alert('Describe the item first.');state.researchHistory=state.researchHistory||[];state.researchHistory.push({date:new Date().toISOString(),description:d,asking:ask,decision:'PASS'});closeModal();alert('Pass recorded in research history. No inventory item was created.');};
@@ -813,11 +832,13 @@ window.saveAcquisition=(next=false)=>{
   const raw=$('#bcAsk').value,price=Number(raw),v=$('#bcOverride').value||$('#bcMarket').value,market=v===''?null:Number(v);
   if(raw.trim()===''||!Number.isFinite(price)||price<0)throw Error('Enter the purchase price, including zero if free.');
   if(market!==null&&(!Number.isFinite(market)||market<0))throw Error('Enter a valid value or leave it unknown.');
-  const area=text($('#bcArea').value),shelf=text($('#bcShelf').value),batchName=text($('#bcBatch').value),batch=state.items.find(i=>i.batchName===batchName&&i.batchId),valuation=session.valuation?JSON.parse(JSON.stringify(session.valuation)):null;
-  if(valuation&&$('#bcOverride').value){valuation.finalValue=market;valuation.acquisitionValue=market;valuation.source='Manual override over stored evidence';valuation.confidence='override';}
+  const area=text($('#bcArea').value),shelf=text($('#bcShelf').value),batchName=text($('#bcBatch').value),batch=state.items.find(i=>i.batchName===batchName&&i.batchId);let valuation=session.valuation?JSON.parse(JSON.stringify(session.valuation)):null;
+  if(session.ebayComparable)valuation={finalValue:market,acquisitionValue:market,benchmark:market,
+   benchmarkLabel:'Selected eBay asking price',source:'Selected eBay asking price',confidence:'selected-asking-price',ebayComparable:session.ebayComparable,timestamp:today()};
+  else if(valuation&&$('#bcOverride').value){valuation.finalValue=market;valuation.acquisitionValue=market;valuation.source='Manual override over stored evidence';valuation.confidence='override';}
   const item={id:Math.max(Date.now(),...state.items.map(i=>i.id+1)),title,manufacturer:'',category:$('#bcCategory').value,source:'Buy Check',buy:Math.round(price*100)/100,baseMarket:market,marketIsConditionSpecific:true,valuation,needsIdentification:!session.lockedIdentity,needsValuation:market===null,status:'Acquired',condition:session.condition||'Good',acquiredCondition:session.condition||'Good',accessories:{box:$('#bcBox').checked,controller:$('#bcController').checked,cables:$('#bcCables').checked},identity:session.lockedIdentity||null,cexGrade:cexGradeForBuyCheck(),cexProductId:session.evidence?.find(x=>x.provider==='CeX UK'&&x.status==='Live')?.productId||null,cexProduct:session.cexCatalogueProduct||null,barcode:text($('#bcBarcode').value),area,shelf,location:[area,shelf].filter(Boolean).join(' / ')||'Unassigned',acquiredDate:today(),batchId:batchName?(batch?.batchId||crypto.randomUUID()):null,batchName:batchName||null,velocity:70,notes:'',photoData:acquisitionPhoto,photos:acquisitionPhoto?1:0,buyingEstimate:buyingEstimate('bc'),marketEvidence:session.evidence||[],processingCosts:0,listing:null,sale:null,timeline:[['Acquired',today()+' · purchased for '+money(price)+(batchName?' · '+batchName:'')]]};
   state.items.push(item);if(!persistState()){state.items.pop();return;}
-  if(next){buyCheck();$('#bcArea').value=area;$('#bcShelf').value=shelf;$('#bcBatch').value=batchName;}else{closeModal();go('inventory');}
+  if(next){const ready=sourcingScans.findIndex(scan=>scan.status==='Ready');buyCheck(null,ready<0?null:sourcingScans.splice(ready,1)[0]);$('#bcArea').value=area;$('#bcShelf').value=shelf;$('#bcBatch').value=batchName;}else{closeModal();go('inventory');}
  }catch(e){$('#acquireError').textContent=e.message;$('#acquireError').className='action-required';$('#acquireError').scrollIntoView({block:'nearest'});}
 };
 window.buyFromCheck=()=>saveAcquisition(false);
@@ -846,7 +867,7 @@ function renderBuyingDecision(prefix){
  box.innerHTML=e.ready?'<div><span>Estimated sale</span><strong>'+money(e.price)+'</strong></div><div><span>Estimated selling costs</span><strong>'+money(e.total)+'</strong></div><div><span>Estimated profit after purchase</span><strong>'+(e.profit===null?'Enter purchase price':money(e.profit))+'</strong></div><div><span>Maximum buy</span><strong>'+money(e.maxBuy)+'</strong><small>Lower of configured buying target and break-even after costs</small></div><div><strong>'+e.decision+'</strong><small>Estimate only. Confirm exact item, condition and selling evidence.</small></div>':'<p class="muted">'+escapeText(e.reason)+'</p>';
 }
 function renderAcquisitionPhoto(){const box=$('#acquisitionPhotoSummary');if(box)box.innerHTML=RetroBuying.validPhoto(acquisitionPhoto)?'<p><strong>Photo identified: '+escapeText(photoSearchNote)+'</strong> <button class="btn secondary" onclick="editPhotoDescription()">Correct description</button></p><p>Reference photo will travel with this item.</p><img src="'+acquisitionPhoto+'" alt="Acquisition reference photo" style="max-height:120px;max-width:100%"><button class="btn secondary" onclick="removeAcquisitionPhoto()">Remove photo</button>':'';}
-window.removeAcquisitionPhoto=()=>{acquisitionPhoto=null;renderAcquisitionPhoto();};
+window.removeAcquisitionPhoto=()=>{acquisitionPhoto=null;renderAcquisitionPhoto();renderPriceHeader(window.buyCheckSession?.lockedIdentity,window.buyCheckSession?.evidence);};
 function buyingSnapshotHtml(i){const e=i.buyingEstimate;if(!e)return '';return '<div class="card"><h3>Buying decision at acquisition</h3><p>'+(e.ready?'Estimated sale '+money(e.price)+' · estimated costs '+money(e.total)+' · estimated profit '+(e.profit===null?'unknown':money(e.profit)):'Costs or selling estimate were incomplete when acquired.')+'</p><small>Historical estimate, not actual sale profit.</small></div>';}
 
 function defaultGameBox(prefix,identity){const box=$('#'+prefix+'Box');if(identity?.type==='software'&&box&&!box.dataset.userSet){box.checked=true;box.dataset.userSet='default';}}
@@ -855,7 +876,67 @@ window.scanBarcode=()=>{if(demoMode)return alert('Return to your saved workspace
  if(identityQuery){clearExistingIdentitySelection(true);identityQuery.value=code;searchExistingIdentity();return;}
  const quick=!!$('#qBarcode');$(quick?'#qBarcode':'#bcBarcode').value=code;$(quick?'#qDesc':'#bcDesc').value='';acquisitionPhoto=null;photoSearchNote='';if(quick){$('#qTitle').value='';window.quickCaptureLookupState={requestId:0};findCandidates();}else autoMarketSearch();});};
 let photoSearchNote='';
-window.editPhotoDescription=()=>{const el=$('#qDesc')||$('#bcDesc');el?.focus();el?.select();};
+const sourcingScans=[];
+let sourcingScanRunning=false;
+function renderSourcingQueue(){
+ const box=$('#bcSourcingQueue');
+ if(!box||window.buyCheckSession?.item)return;
+ box.innerHTML=sourcingScans.length?`<details class="card" open><summary>Scan queue · ${sourcingScans.length}</summary>${sourcingScans.map((scan,index)=>`
+  <div class="row"><div><strong>${escapeText(scan.query||'Photo '+(index+1))}</strong><p>${escapeText(scan.status)}${scan.error?' · '+escapeText(scan.error):''}</p></div>
+  ${scan.image&&['Ready','Review match','Needs retry'].includes(scan.status)?`<button class="btn secondary" onclick="openSourcingScan(${index})">Open scan</button>`:''}
+  ${scan.image&&scan.status==='Needs retry'?`<button class="btn secondary" onclick="retrySourcingScan(${index})">Retry</button>`:''}
+  <button class="btn secondary" onclick="removeSourcingScan(${index})">Remove</button></div>`).join('')}</details>`:'';
+}
+window.queueSourcingPhoto=file=>{
+ if(!file||demoMode)return;
+ if(sourcingScans.length>=8){$('#autoSearchStatus').textContent='Scan queue full. Open or remove a scan first.';return;}
+ sourcingScans.push({file,status:'Queued'});renderSourcingQueue();processSourcingScans();
+};
+window.openSourcingScan=index=>{
+ const scan=sourcingScans[index];
+ if(!scan?.image||!['Ready','Review match','Needs retry'].includes(scan.status))return;
+ if($('#bcAsk')?.value.trim()||$('#bcOverride')?.value.trim()){
+  if(!confirm('Open the queued scan and discard the unsaved price or cost on this screen?'))return;
+ }
+ sourcingScans.splice(index,1);buyCheck(null,scan);
+};
+window.removeSourcingScan=index=>{sourcingScans.splice(index,1);renderSourcingQueue();};
+window.retrySourcingScan=index=>{
+ const scan=sourcingScans[index];
+ if(scan?.status==='Needs retry'){scan.status='Queued';scan.error='';renderSourcingQueue();processSourcingScans();}
+};
+async function processSourcingScans(){
+ if(sourcingScanRunning)return;
+ sourcingScanRunning=true;
+ try{
+  let scan;
+  while((scan=sourcingScans.find(row=>row.status==='Queued'))){
+   scan.status='Checking photo';renderSourcingQueue();
+   try{
+    scan.image=scan.image||await RetroCapture.photo(scan.file);
+    delete scan.file;
+    if(!sourcingScans.includes(scan))continue;
+    const suggestion=scan.suggestion||await loadPhotoSuggestion(scan.image);
+    if(!sourcingScans.includes(scan))continue;
+    scan.suggestion=suggestion;
+    scan.query=[suggestion.title,suggestion.platform].filter(Boolean).join(' ');
+    if(suggestion.confidence==='high'&&suggestion.title.trim()){
+     scan.status='Checking prices';renderSourcingQueue();
+     scan.result=await loadPriceLookup(new URLSearchParams({q:scan.query,cexGrade:'Unboxed'}));
+     scan.status='Ready';
+    }else scan.status='Review match';
+   }catch(error){scan.status='Needs retry';scan.error=error.message;}
+   renderSourcingQueue();
+  }
+ }finally{sourcingScanRunning=false;}
+}
+async function loadPhotoSuggestion(image){
+ const r=await fetch('/api/identify-photo',{method:'POST',headers:{'Content-Type':'application/json','X-RetroHQ-Action':'identify-photo'},body:JSON.stringify({image})});
+ const data=await r.json();
+ if(!r.ok||!data.ok||!data.suggestion)throw Error(data.status||'Photo identification failed.');
+ return data.suggestion;
+}
+window.editPhotoDescription=()=>{const tools=$('#bcSearchTools'),el=$('#qDesc')||$('#bcDesc');if(tools)tools.open=true;el?.focus();el?.select();};
 let selectedPhoto=null,photoBusy=false,photoGeneration=0;
 window.photoIdentify=()=>{
  RetroCapture.stop();
@@ -883,10 +964,8 @@ window.identifySelectedPhoto=async()=>{
  const result=panel.querySelector('#photoResult');
  if(!selectedPhoto){result.textContent='Take or choose a photo first.';return;}
  photoBusy=true;panel.querySelector('#choosePhotoButton').disabled=true;panel.querySelector('#identifyPhotoButton').hidden=true;panel.querySelector('#identifyPhotoButton').disabled=true;result.textContent='Identifying the item…';
- try{const r=await fetch('/api/identify-photo',{method:'POST',headers:{'Content-Type':'application/json','X-RetroHQ-Action':'identify-photo'},body:JSON.stringify({image:selectedPhoto})}),data=await r.json();
+ try{const v=await loadPhotoSuggestion(selectedPhoto);
   if(!panel.isConnected||generation!==photoGeneration)return;
-  if(!r.ok||!data.ok)throw Error(data.status||'Photo identification failed.');
-  const v=data.suggestion;
   result.innerHTML='<h4>Suggested identity — please check</h4><p>'+escapeText(v.visible_details)+'</p><p>'+escapeText(v.uncertainty)+'</p><p>Confidence: '+escapeText(v.confidence)+'</p><label>Item description<input id="photoSuggestion" class="input"></label><button class="btn primary" onclick="usePhotoSuggestion()">Use this description and find matches</button>';
   panel.querySelector('#photoSuggestion').value=[v.title,v.platform].filter(Boolean).join(' ');
   if(v.confidence==='high'&&v.title.trim()){photoSearchNote=[v.title,v.platform].filter(Boolean).join(' ');usePhotoSuggestion();}
@@ -904,7 +983,7 @@ window.usePhotoSuggestion=()=>{
  const quick=!!$('#qDesc'),desc=$(quick?'#qDesc':'#bcDesc');if(!desc)return;
  desc.value=title;$(quick?'#qBarcode':'#bcBarcode').value='';
  if(quick){$('#qTitle').value=title;$('#qMarket').value='';window.quickBuySeed={};window.quickCaptureLookupState={requestId:0};}else{buyLookupChanged();}
- selectedPhoto=null;photoGeneration++;$('#photoIdentifyPanel').remove();renderAcquisitionPhoto();if(quick)findCandidates();else autoMarketSearch();
+ selectedPhoto=null;photoGeneration++;$('#photoIdentifyPanel').remove();renderAcquisitionPhoto();if(quick)findCandidates();else{$('#bcSearchTools').open=false;autoMarketSearch();}
 };
 window.parseDescription=()=>{const d=($('#qDesc')?.value||'').toLowerCase();if(d.includes('pal')||d.includes(' uk'))$('#qRegion').value='UK / PAL';};
 // Quick Capture uses the same real UK market connector as Buy Check.
