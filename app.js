@@ -29,15 +29,14 @@ const metric=(a,b,c,action='')=>action?`<button class="metric" onclick="${action
 function marketValue(i){if(i.valuation?.finalValue!=null)return Math.round(Number(i.valuation.finalValue)*100)/100;const base=Number(i.baseMarket)||0;return i.marketIsConditionSpecific?Math.round(base*100)/100:Math.round(base*(factors[i.condition]||.85)*100)/100;}
 function acquisitionValue(i){return i.valuation?.acquisitionValue!=null?Number(i.valuation.acquisitionValue):marketValue(i);}
 function missingEssentials(i){if(!i.accessories)return [];const p=i.valuation?.profile||{};const out=[];if(p.controller&&i.accessories.controller===false)out.push('Controller');if(p.cables&&i.accessories.cables===false)out.push('Cables');return out;}
-function itemSignals(i){const out=[];if(!knownPurchase(i))out.push(['Costs unknown','warn']);if(i.needsIdentification)out.push(['Needs ID','warn']);if(i.needsValuation||marketValue(i)<=0)out.push(['Needs value','warn']);const miss=missingEssentials(i);if(miss.length)out.push(['Missing '+miss.join(' + '),'warn']);if(i.status==='Ready to list')out.push(['Ready to list','good']);if(['Sold','Packaged'].includes(i.status)&&i.sale)out.push(['Ready to dispatch','warn']);if(i.status==='Needs repair'&&i.returns?.length)out.push(['Returned','warn']);if(i.valuation?.confidence==='adjusted')out.push(['Smart value','good']);return out;}
+function itemSignals(i){const out=[];if(!knownPurchase(i))out.push(['Costs unknown','warn']);if(needsPriceCheck(i))out.push(['Price check needed','warn']);const miss=missingEssentials(i);if(miss.length)out.push(['Missing '+miss.join(' + '),'warn']);if(i.status==='Ready to list')out.push(['Ready to list','good']);if(['Sold','Packaged'].includes(i.status)&&i.sale)out.push(['Ready to dispatch','warn']);if(i.status==='Needs repair'&&i.returns?.length)out.push(['Returned','warn']);if(i.valuation?.confidence==='adjusted')out.push(['Smart value','good']);return out;}
 function signalHtml(i){const x=itemSignals(i);return x.length?`<div class="item-signals">${x.slice(0,3).map(v=>pill(v[0],v[1])).join('')}</div>`:'';}
 function workflowTasks(){
  const tasks=[];
  state.items.forEach(i=>{
    if(i.stockRemoval||i.importHold||RetroItems.sold(i)&&!['Sold','Packaged'].includes(i.status))return;let task=null;
    if(['Sold','Packaged'].includes(i.status)&&i.sale)task={rank:1000,label:'Dispatch sold item',detail:i.title,item:i};
-   else if(i.needsIdentification)task={rank:950,label:'Identify item',detail:i.title,item:i};
-   else if(i.needsValuation||marketValue(i)<=0)task={rank:900,label:'Value item',detail:i.title,item:i};
+   else if(needsPriceCheck(i))task={rank:900,label:'Check price',detail:i.title,item:i};
    else {const miss=missingEssentials(i);if(miss.length)task={rank:875,label:'Resolve missing '+miss.join(' / '),detail:i.title,item:i};}
    if(!task&&['Acquired','Preparing'].includes(i.status))task={rank:700,label:'Prepare item',detail:i.title,item:i};
    if(!task&&i.status==='Ready to list')task={rank:850,label:'List this item',detail:i.title,item:i};
@@ -46,7 +45,7 @@ function workflowTasks(){
  });
  return tasks.sort((a,b)=>b.rank-a.rank);
 }
-window.openWorkflowTask=id=>{const i=state.items.find(i=>i.id===id);if(!i)return;if(i.sale)return openItem(id,'Sales');if(i.needsIdentification)return identifyExistingItem(id);if(i.needsValuation||marketValue(i)<=0)return editItem(id);openItem(id);};
+window.openWorkflowTask=id=>{const i=state.items.find(i=>i.id===id);if(!i)return;if(i.sale)return openItem(id,'Sales');if(needsPriceCheck(i))return checkItemMarket(id);openItem(id);};
 function lifecycleStrip(i){const core=['Acquired','Preparing','Ready to list','Listed','Sold','Completed'],current=['Packaged','Dispatched','Delivered'].includes(i.status)?'Sold':RetroItems.stage(i),idx=core.indexOf(current);return `<div class="lifecycle-strip">${core.map((x,n)=>`<span class="${n<idx?'done':n===idx?'current':''}">${x}</span>`).join('')}</div>`;}
 function valuationSummary(i){const v=i.valuation;if(!v)return `<div class="card"><h3>Valuation</h3><p class="muted">${i.needsValuation?'Needs valuation.':'Legacy valuation — no stored evidence breakdown yet.'}</p><strong>${i.needsValuation?'Unknown':money(marketValue(i))}</strong></div>`;const adjustments=(v.adjustments||[]);return `<div class="card valuation-summary"><div class="head"><h3>RetroHQ valuation</h3>${pill(v.confidence==='adjusted'?'Smart value':'Recorded value',v.confidence==='adjusted'?'good':'')}</div><div class="row"><span>${v.benchmarkLabel||'UK benchmark'}</span><strong>${money(v.benchmark)}</strong></div>${adjustments.map(a=>`<div class="row"><span>${a.label}</span><strong>−${money(a.amount)}</strong></div>`).join('')}<div class="row total"><span>RetroHQ UK Market Value</span><strong>${money(v.finalValue)}</strong></div>${(v.unresolved||[]).length?`<small class="warning-text">Still unresolved: ${v.unresolved.join(', ')}</small>`:''}<small class="muted">Captured ${v.timestamp||'during acquisition'} · ${v.source||'RetroHQ evidence'}</small></div>`;}
 function daysToSell(i){if(!i.sale?.date||!i.acquiredDate)return null;return Math.max(0,Math.floor((new Date(i.sale.date)-new Date(i.acquiredDate))/(86400000)));}
@@ -74,7 +73,7 @@ function open(html){RetroCapture.stop();modal.innerHTML=html;backdrop.classList.
 function closeModal(){RetroCapture.stop();persistState();backdrop.classList.add('hidden');modal.innerHTML='';}
 function go(v){if(v==='soldInventory')v='sales';state.view=v;$$('#nav button').forEach(b=>b.classList.toggle('active',b.dataset.view===v||b.dataset.view==='customers'&&['customerNew','customerDetail'].includes(v)));$('#title').textContent=meta[v][0];$('#subtitle').textContent=meta[v][1];$('#sidebar').classList.remove('open');render();if(v==='epos')$('#eposSearch')?.focus();}
 function salesTable(items){return `<div class="card tablewrap"><p class="muted">Sold for is the actual item revenue. Marketplace fees are separate from purchase and preparation costs. Estimated fees do not confirm profit.</p><table class="table"><thead><tr><th>Item / sold date</th><th>Sold for</th><th>Marketplace fee</th><th>Buy</th><th>Preparation</th><th>Net profit</th><th>Lifecycle</th><th>Costs</th></tr></thead><tbody>${items.map(i=>{const s=i.sale,a=RetroOps.saleAmounts(i,state.settings.fees.eBay),econ=RetroOps.economics(i);return `<tr class="click" onclick="openItem(${i.id},'Sales')"><td><strong>${escapeText(i.title)}</strong><small class="table-note">${escapeText(s.date||'Date unknown')} · ${escapeText(s.channel||'Channel unknown')}</small><small class="table-note">${i.liveListingId?'Listing '+escapeText(i.liveListingId)+' · ':''}${escapeText(i.liveSku||'')}</small></td><td><strong>${knownMoney(a.price)}</strong><small class="table-note">Item revenue${Number.isFinite(s.shippingRevenue)?' · buyer postage '+money(s.shippingRevenue):' · buyer postage unknown'}</small>${!i.needsValuation&&Number.isFinite(i.valuation?.finalValue??i.baseMarket)?'<small class="table-note">Reference value '+money(marketValue(i))+'</small>':''}</td><td><strong>${knownMoney(a.fee)}</strong><small class="table-note">${a.fee===null?'Fee not set':(a.feeType==='percent'?a.feeValue+'% · ':'')+(a.estimated?'Estimated · business default':s.costsConfirmed?'Confirmed':'Recorded fee')}</small></td><td>${knownMoney(i.buy)}</td><td>${knownMoney(i.processingCosts)}<small class="table-note">Cleaning / repair etc.</small></td><td>${econ.profit===null?pill(s.reviewNeeded?'Order review':'Costs need review','warn'):'<strong>'+money(econ.profit)+'</strong>'+marginBadge(econ.margin)}</td><td>${pill(i.status||'Sold',completionClass(i))}</td><td><button class="btn secondary" onclick="event.stopPropagation();editImportedCosts(${i.id})">Review costs</button></td></tr>`;}).join('')}</tbody></table></div>`;}
-function table(items){return `<div class="card tablewrap"><table class="table"><thead><tr><th>Item</th><th>Manufacturer</th><th>Condition</th><th>Buy</th><th>Market</th><th>Margin</th><th>HQ</th><th>Lifecycle</th><th>Sales</th></tr></thead><tbody>${items.map(i=>{const e=i.sale?soldEcon(i):expected(i);return `<tr class="click" onclick="openItem(${i.id})"><td><strong>${i.title}</strong><div class="muted">${i.category} · ${i.location}</div>${signalHtml(i)}</td><td>${i.manufacturer||'—'}</td><td>${i.condition}</td><td>${knownMoney(i.buy)}</td><td><strong>${knownMoney(independentMarketValue(i))}</strong>${ebayListedPrice(i)!=null?'<small class="table-note">eBay listed '+money(ebayListedPrice(i))+'</small>':''}${i.valuation?.confidence==='adjusted'?'<small class="table-note">Smart value</small>':''}${RetroCheckout.available(i)?`<button class="btn secondary edit-value" onclick="event.stopPropagation();editItem(${i.id})">Edit value</button>`:''}</td><td>${marginBadge(e.margin)}</td><td>${score(i)}</td><td>${pill(i.status||'Acquired',completionClass(i))}</td><td>${i.sale?.channel||i.listing?.channel||'—'}</td></tr>`}).join('')}</tbody></table></div>`;}
+function table(items){return `<div class="card tablewrap"><table class="table"><thead><tr><th>Item</th><th>Manufacturer</th><th>Condition</th><th>Buy</th><th>Market</th><th>Margin</th><th>HQ</th><th>Lifecycle</th><th>Sales</th></tr></thead><tbody>${items.map(i=>{const e=i.sale?soldEcon(i):expected(i);return `<tr class="click" onclick="openItem(${i.id})"><td><strong>${i.title}</strong><div class="muted">${i.category} · ${i.location}</div>${signalHtml(i)}</td><td>${i.manufacturer||'—'}</td><td>${i.condition}</td><td>${knownMoney(i.buy)}</td><td><strong>${knownMoney(independentMarketValue(i))}</strong>${ebayListedPrice(i)!=null?'<small class="table-note">eBay listed '+money(ebayListedPrice(i))+'</small>':''}${i.valuation?.confidence==='adjusted'?'<small class="table-note">Smart value</small>':''}${RetroCheckout.available(i)?`<button class="btn secondary edit-value" onclick="event.stopPropagation();checkItemMarket(${i.id})">Check price</button>`:''}</td><td>${marginBadge(e.margin)}</td><td>${score(i)}</td><td>${pill(i.status||'Acquired',completionClass(i))}</td><td>${i.sale?.channel||i.listing?.channel||'—'}</td></tr>`}).join('')}</tbody></table></div>`;}
 function stockSystem(i){return RetroOps.stockSystem(i);}
 
 function listedBelowMarket(items){
@@ -100,13 +99,13 @@ function listedBelowMarket(items){
 function dashboard(){
  const tasks=workflowTasks(),periodSales=state.items.filter(salePeriodMatch),salesValue=periodSales.reduce((a,i)=>a+(i.sale?.price||0),0);
  const stock=state.items.filter(RetroCheckout.available),stockValue=stock.reduce((a,i)=>a+(i.needsValuation?0:marketValue(i)),0),capital=stock.reduce((a,i)=>a+(Number.isFinite(i.buy)?i.buy:0),0);
- const needsValue=stock.filter(i=>i.needsValuation||marketValue(i)<=0).length;
+ const needsValue=stock.filter(needsPriceCheck).length;
  const categories={};stock.forEach(i=>categories[i.category]=(categories[i.category]||0)+1);const systemRows=RetroOps.systemStock(state.items);
  return `<div class="hero"><div><small>RetroHQ · Test 8.4</small><h2>HQ Today</h2><p>Your business control panel — buy, stock, process, sell, return and learn.</p></div><button class="btn primary" onclick="buyCheck()">🔎 Acquire / Value Item</button></div>
  <p class="muted">Current inventory · live stock snapshot</p><div class="grid metrics clickable-metrics">${metric('Items in stock',stock.length,'Open inventory →',"go('inventory')")}${metric('Current stock value',money(stockValue),`${needsValue} item(s) still need a value`,"go('inventory')")}${metric('Known capital in stock',money(capital),stock.filter(i=>!Number.isFinite(i.buy)).length+' item(s) have unknown purchase costs')}</div><div class="card dashboard-sales"><div class="head"><h3>Sales performance</h3><span>${reportPeriodLabel()}</span></div>${periodButtons()}<div class="grid metrics clickable-metrics">${metric('Sales value',money(salesValue),reportPeriodLabel(),"go('sales')")}${metric('Items sold',periodSales.length,reportPeriodLabel(),"go('sales')")}</div><p class="muted">Sales figures follow the selected sale-date period. Inventory figures above show current available stock.</p></div>
  ${listedBelowMarket(stock)}
  <div class="grid two"><div class="card"><div class="head"><h3>What should I do next?</h3>${pill('Live workflow','good')}</div><div class="list">${tasks.slice(0,6).map(t=>`<div class="row"><button onclick="openWorkflowTask(${t.item.id})"><strong>${t.label}</strong><span class="table-note">${escapeText(t.detail)}</span></button>${pill('Priority',t.rank>=850?'warn':'')}</div>`).join('')}${!tasks.length?'<p class="muted">No urgent workflow tasks.</p>':''}</div></div>
- <div class="card stock-health"><div class="head"><h3>Stock health</h3>${pill('Live inventory','good')}</div><div class="stock-mix">${Object.entries(categories).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<span><strong>${v}</strong> ${k}</span>`).join('')||'<span>No active stock</span>'}</div><h4>Games & consoles by platform</h4><p class="muted">Current available units, using each item’s latest saved category. A platform can contain both games and consoles.</p><div class="system-stock">${systemRows.map(x=>`<button onclick="filterSystem('${encodeURIComponent(x.platform).replace(/'/g,'%27')}')"><span>${escapeText(x.platform)}</span><strong>${x.total}</strong><small>${x.games} ${x.games===1?'game':'games'} · ${x.consoles} ${x.consoles===1?'console':'consoles'}</small>${x.total<=3?'<small>Low stock</small>':''}</button>`).join('')||'<p class="muted">Platform information will appear as items are identified.</p>'}</div></div></div>`;
+ <div class="card stock-health"><div class="head"><h3>Stock health</h3>${pill('Live inventory','good')}</div><div class="stock-mix">${Object.entries(categories).sort((a,b)=>b[1]-a[1]).map(([k,v])=>`<span><strong>${v}</strong> ${k}</span>`).join('')||'<span>No active stock</span>'}</div><h4>Games & consoles by platform</h4><p class="muted">Current available units, using each item’s latest saved category. A platform can contain both games and consoles.</p><div class="system-stock">${systemRows.map(x=>`<button onclick="filterSystem('${encodeURIComponent(x.platform).replace(/'/g,'%27')}')"><span>${escapeText(x.platform)}</span><strong>${x.total}</strong><small>${x.games} ${x.games===1?'game':'games'} · ${x.consoles} ${x.consoles===1?'console':'consoles'}</small>${x.total<=3?'<small>Low stock</small>':''}</button>`).join('')||'<p class="muted">Platform information appears when available in your stock details.</p>'}</div></div></div>`;
 }
 function acquisitions(){return `<div class="hero"><div><h2>Acquisition Engine</h2><p>One intelligent route for normal buying, with Quick Capture when speed matters more than research.</p></div><div class="hero-actions"><button class="btn primary" onclick="buyCheck()">🔎 Acquire / Value Item</button></div></div><div class="grid actions"><button class="action" onclick="tradeIn()"><span class="action-icon">🏪</span><strong>Trade in</strong><span>Cash, store credit or mixed payment.</span></button><button class="action" onclick="bundleModal('Sourcing Trip',false)"><span class="action-icon">🚗</span><strong>Sourcing trip</strong><span>Add multiple items under one trip.</span></button><button class="action" onclick="bundleModal('Other Reseller',false)"><span class="action-icon">🤝</span><strong>Other reseller</strong><span>Same margin and HQ rules.</span></button><button class="action" onclick="go('production')"><span class="action-icon">⇧</span><strong>Import stock</strong><span>Existing database migration path.</span></button></div>${table(state.items.filter(RetroCheckout.available))}`;}
 function inventoryTable(items){
@@ -114,7 +113,7 @@ function inventoryTable(items){
  if(!items.length)return '<div class="card"><p>No available stock. Confirm an import line to add its units, or record an acquisition.</p><button class="btn primary" onclick="go(\'production\')">Open import stock</button></div>';
  return [...groups.values()].map(units=>{if(units.length===1)return table(units);const first=units[0],values=units.filter(i=>!i.needsValuation).map(marketValue),value=values.length===units.length?(Math.min(...values)===Math.max(...values)?money(values[0]):money(Math.min(...values))+' – '+money(Math.max(...values))):'Some values unknown';return '<details class="card"><summary><strong>'+escapeText(first.title)+'</strong> · Quantity '+units.length+' · '+value+' per unit</summary><p>Stock group '+escapeText(first.liveListingId||first.stockSku)+' · SKUs '+escapeText([...new Set(units.map(i=>i.liveSku||'(none)'))].join(', '))+'. Each physical copy keeps its purchase cost, location and history.</p>'+table(units)+'</details>';}).join('');
 }
-function inventory(){return `<div class="toolbar"><button class="btn primary" onclick="go('production')">Import stock</button><button class="btn secondary" onclick="go('sales')">Sales</button><input class="input" id="search" placeholder="Search items" oninput="filterItems()"><select class="select" id="cat" onchange="filterItems()"><option value="">All categories</option><option>Video Game</option><option>Console</option><option>Trading Card</option><option>Toy</option><option>Clothing</option><option>Accessory</option><option>Collectible</option></select><select class="select" id="attention" onchange="filterItems()"><option value="">All workflow states</option><option value="valuation">Needs valuation</option><option value="missing">Missing essentials</option><option value="ready">Ready to list</option></select><button class="btn secondary" onclick="bulkStock()">Organise selected stock</button>${managerControl()}${managerActive()?'<button class="btn secondary" onclick="removedStock()">Removed stock ('+state.items.filter(i=>i.stockRemoval).length+')</button>':''}</div>${state.systemFilter?'<p>Platform: '+escapeText(state.systemFilter)+' <button class="btn secondary" onclick="clearSystemFilter()">Show all platforms</button></p>':''}<div id="results">${inventoryTable(state.items.filter(i=>RetroCheckout.available(i)&&(!state.systemFilter||['Video Game','Console'].includes(i.category)&&stockSystem(i)===state.systemFilter)))}</div>`;}
+function inventory(){return `<div class="toolbar"><button class="btn primary" onclick="go('production')">Import stock</button><button class="btn secondary" onclick="go('sales')">Sales</button><input class="input" id="search" placeholder="Search items" oninput="filterItems()"><select class="select" id="cat" onchange="filterItems()"><option value="">All categories</option><option>Video Game</option><option>Console</option><option>Trading Card</option><option>Toy</option><option>Clothing</option><option>Accessory</option><option>Collectible</option></select><select class="select" id="attention" onchange="filterItems()"><option value="">All workflow states</option><option value="valuation">Needs price check</option><option value="missing">Missing essentials</option><option value="ready">Ready to list</option></select><button class="btn secondary" onclick="bulkStock()">Organise selected stock</button>${managerControl()}${managerActive()?'<button class="btn secondary" onclick="removedStock()">Removed stock ('+state.items.filter(i=>i.stockRemoval).length+')</button>':''}</div>${state.systemFilter?'<p>Platform: '+escapeText(state.systemFilter)+' <button class="btn secondary" onclick="clearSystemFilter()">Show all platforms</button></p>':''}<div id="results">${inventoryTable(state.items.filter(i=>RetroCheckout.available(i)&&(!state.systemFilter||['Video Game','Console'].includes(i.category)&&stockSystem(i)===state.systemFilter)))}</div>`;}
 function soldInventory(){return `<div class="toolbar"><button class="btn secondary" onclick="go('inventory')">Back to live inventory</button><input class="input" id="search" placeholder="Search sold items" oninput="filterItems()"></div><div id="results">${table(state.items.filter(RetroItems.sold))}</div>`;}
 function processing(){const items=state.items.filter(i=>RetroCheckout.available(i)&&i.status!=='Listed');return `${operationsPanel()}<div class="hero"><div><h2>Prepare stock</h2><p>Acquired → Preparing → Ready to list. Clean, test, repair, photograph and price as needed.</p></div></div>${['Acquired','Preparing','Ready to list'].map(stage=>`<div class="card"><h3>${stage}</h3>${items.filter(i=>RetroItems.stage(i)===stage).map(i=>`<div class="row"><button onclick="openItem(${i.id},'Processing')"><strong>${escapeText(i.title)}</strong><small>${signalHtml(i)}</small></button><button class="btn secondary" onclick="openItem(${i.id},'Processing')">Open</button></div>`).join('')||'<p class="muted">No items.</p>'}</div>`).join('')}`;}
 function sales(){
@@ -179,6 +178,9 @@ function ebayListedPrice(item){
  if((item.liveListingId||item.ebayListingId||/^ebay/i.test(listing?.channel||''))&&Number.isFinite(listing?.price))return listing.price;
  return null;
 }
+function needsPriceCheck(item){
+ return RetroCheckout.available(item)&&(item.valuation?.stale||independentMarketValue(item)==null);
+}
 function independentMarketValue(item){
  return item.needsValuation||item.valuation?.source==='eBay listing price'||item.valuation?.confidence==='asking-price'
   ||!Number.isFinite(item.valuation?.finalValue??item.baseMarket)?null:marketValue(item);
@@ -189,9 +191,7 @@ function itemView(){
  if(i.stockRemoval)return `<div class="card"><h2>${escapeText(i.title)}</h2><p>Removed from live stock.</p><button class="btn secondary" onclick="go('inventory')">Back to inventory</button></div>`;
  return `<div class="hero"><div><small>${escapeText(i.category)}</small><h2>${escapeText(i.title)}</h2>
  <div class="hero-actions"><button class="btn secondary" onclick="editItem(${i.id})">Edit prices & details</button>
- ${reviewableImport(i)?`<button class="btn primary" onclick="checkItemMarket(${i.id})">Review imported item</button>`:
-  `<button class="btn secondary" onclick="identifyExistingItem(${i.id})">${i.needsIdentification?'Identify this item':'Review item identity'}</button>
-  <button class="btn primary" onclick="checkItemMarket(${i.id})">Check market value</button>`}${managerActive()&&RetroCheckout.available(i)?'<button class="btn secondary" onclick="stockRemovalDialog('+i.id+',true)">Remove from stock</button>':''}</div>
+ <button class="btn primary" onclick="checkItemMarket(${i.id})">Check price</button>${managerActive()&&RetroCheckout.available(i)?'<button class="btn secondary" onclick="stockRemovalDialog('+i.id+',true)">Remove from stock</button>':''}</div>
  <p>${escapeText(i.condition)} · ${escapeText(i.location)} · ${escapeText(i.status)}</p>${signalHtml(i)}</div>
  <div><div>HQ UK market value <strong>${knownMoney(independentMarketValue(i))}</strong></div>
  <div>eBay listed price <strong>${knownMoney(ebayListedPrice(i))}</strong></div>
@@ -318,7 +318,7 @@ window.identifyExistingItem=id=>{
   ['manufacturer','Manufacturer',item.manufacturer||''],['barcode','Barcode / EAN',item.barcode||'']];
  const input=([key,label,value])=>`<label for="identity-${key}">${label}<input id="identity-${key}" class="input" value="${escapeText(value)}"></label>`;
  const included=[['box','Box'],['controller','Controller'],['cables','Cables']].filter(([key])=>item.accessories?.[key]).map(([,label])=>label);
- open(`<section class="identity-workflow"><h2>Identify existing item</h2>
+ open(`<section class="identity-workflow"><h2>Correct product details</h2>
   <form id="identitySearchForm">
    <label class="identity-label" for="existingIdentityQuery">What is the item?</label>
    <div class="counter-search-row"><input id="existingIdentityQuery" class="input counter-input" value="${escapeText(item.title)}" placeholder="Title, model or barcode"><button class="btn primary" type="submit">Search</button></div>
@@ -550,7 +550,7 @@ window.testSellerConnection=async()=>{
 };
 
 window.openItem=(id,tab='Overview')=>{state.activeItem=id;state.activeTab=tab;go('item');};window.setTab=t=>{state.activeTab=t;render();};
-window.filterItems=()=>{const q=($('#search')?.value||'').toLowerCase(),cat=$('#cat')?.value||'',attention=$('#attention')?.value||'';const items=state.items.filter(i=>(state.view==='soldInventory'?RetroItems.sold(i):RetroCheckout.available(i))&&(!state.systemFilter||['Video Game','Console'].includes(i.category)&&stockSystem(i)===state.systemFilter)&&(!cat||i.category===cat)&&(`${i.title} ${i.manufacturer} ${i.status} ${i.location} ${stockSystem(i)||''}`.toLowerCase().includes(q))&&(!attention||(attention==='valuation'&&(i.needsValuation||marketValue(i)<=0))||(attention==='missing'&&missingEssentials(i).length)||(attention==='ready'&&i.status==='Ready to list')||(attention==='sold'&&!!i.sale)));$('#results').innerHTML=(state.view==='inventory'?inventoryTable(items):table(items));};
+window.filterItems=()=>{const q=($('#search')?.value||'').toLowerCase(),cat=$('#cat')?.value||'',attention=$('#attention')?.value||'';const items=state.items.filter(i=>(state.view==='soldInventory'?RetroItems.sold(i):RetroCheckout.available(i))&&(!state.systemFilter||['Video Game','Console'].includes(i.category)&&stockSystem(i)===state.systemFilter)&&(!cat||i.category===cat)&&(`${i.title} ${i.manufacturer} ${i.status} ${i.location} ${stockSystem(i)||''}`.toLowerCase().includes(q))&&(!attention||(attention==='valuation'&&needsPriceCheck(i))||(attention==='missing'&&missingEssentials(i).length)||(attention==='ready'&&i.status==='Ready to list')||(attention==='sold'&&!!i.sale)));$('#results').innerHTML=(state.view==='inventory'?inventoryTable(items):table(items));};
 window.filterSystem=name=>{state.systemFilter=decodeURIComponent(name);go('inventory');};window.clearSystemFilter=()=>{delete state.systemFilter;render();};
 window.refreshProviderStatus=async()=>{const box=$('#marketProviderStatus');if(!box)return;try{const r=await fetch('/api/provider-status'),d=await r.json();box.innerHTML=[pill('CeX '+(d.cexStatus||'Not tested'),d.cex?'good':'warn'),pill('PriceCharting '+(d.pricecharting?'configured':'token missing'),d.pricecharting?'good':'warn'),pill('eBay UK '+(d.ebayEnvironment==='sandbox'?'Sandbox only':d.ebay?'configured':'credentials missing'),d.ebay&&d.ebayEnvironment!=='sandbox'?'good':'warn')].join(' ');}catch(e){box.innerHTML=pill('Provider status unavailable','warn');}};
 function ebayMarketListings(evidence, expanded=false){
@@ -585,13 +585,11 @@ const cexUrl=q=>`https://uk.webuy.com/search?stext=${encodeURIComponent(q)}`;
 const googleUrl=q=>`https://www.google.com/search?q=${encodeURIComponent(q+' UK used price')}`;
 
 let acquisitionPhoto=null;
-function reviewableImport(item){
- return item?.importedFrom==='ebay-production'&&item.needsIdentification&&RetroCheckout.available(item);
+function nextImportedPriceCheck(item){
+ if(item.importedFrom!=='ebay-production')return null;
+ return state.items.find(other=>other.id!==item.id&&other.importedFrom==='ebay-production'&&needsPriceCheck(other));
 }
-function nextUnreviewedImport(item){
- return state.items.find(other=>other.id!==item.id&&reviewableImport(other));
-}
-function importReviewDetails(item){
+function importedPriceSearch(item){
  const details=item.liveSnapshot?.details||{};
  const specifics=[...(details.variationSpecifics||[]),...(details.specifics||[])];
  const specific=labels=>{
@@ -599,55 +597,26 @@ function importReviewDetails(item){
    .flatMap(row=>row.values).map(value=>String(value).trim()).filter(value=>value&&!/^(?:unknown|n\/a|does not apply|not applicable)$/i.test(value)))];
   return values.length===1?values[0]:'';
  };
- const game=specific(['game name','game title','video game name']);
- const platform=item.platform||specific(['platform','compatible platform']);
- return {title:game||item.title,platform,category:game?'Video Game':item.category||'Uncategorised',
-  region:item.region||specific(['region code','region']),manufacturer:item.manufacturer||details.brand||'',barcode:item.barcode||''};
-}
-function importReviewHtml(details){
- const categories=[...new Set(['Video Game','Console','Toy','Clothing','Trading Card','Accessory','Collectible','Other',details.category])];
- return `<section class="card" id="bcImportReview"><h3>Confirm the physical item</h3>
- <p id="bcImportMatch"><strong>${escapeText(details.title)}</strong>${details.platform?' · '+escapeText(details.platform):''}</p>
- <details><summary>Edit identity details</summary><div class="formgrid">
- ${[['title','Product title'],['platform','Platform / model'],['region','Region / edition'],['manufacturer','Manufacturer']].map(([key,label])=>`<label>${label}<input id="bcReview-${key}" class="input" value="${escapeText(details[key])}"></label>`).join('')}
- <label>Category<select id="bcReview-category" class="select">${categories.map(category=>`<option ${category===details.category?'selected':''}>${escapeText(category)}</option>`).join('')}</select></label></div></details>
- <label><input id="bcConfirmImport" type="checkbox"> I checked the product, edition and contents against the physical item.</label>
- <p class="muted">Confirm the match once to save the identity and current value on this stock record.</p></section>`;
-}
-function updateImportMatch(identity){
- const box=$('#bcImportReview');
- if(!box||!identity?.confirmedProduct)return;
- $('#bcReview-title').value=identity.confirmedProduct;
- if(identity.platform)$('#bcReview-platform').value=identity.platform;
- if(identity.type==='software')$('#bcReview-category').value='Video Game';
- else if(identity.type==='hardware')$('#bcReview-category').value='Console';
- $('#bcImportMatch').textContent=[identity.confirmedProduct,identity.platform].filter(Boolean).join(' · ');
- $('#bcConfirmImport').checked=false;
+ return {title:specific(['game name','game title','video game name','product name']),
+  platform:specific(['platform','compatible platform'])};
 }
 window.buyCheck=(item=null)=>{
  acquisitionPhoto=null;photoSearchNote='';
- const review=reviewableImport(item)?importReviewDetails(item):null;
- const platform=item?.identity?.platform||review?.platform||item?.platform||'';
- const title=item?.identity?.confirmedProduct||review?.title||item?.title||'';
+ const imported=item?.importedFrom==='ebay-production'?importedPriceSearch(item):null;
+ const platform=item?.identity?.platform||imported?.platform||item?.platform||'';
+ const title=item?.identity?.confirmedProduct||imported?.title||item?.title||'';
  const query=[title,platform&&!title.toLowerCase().includes(platform.toLowerCase())?platform:''].filter(Boolean).join(' ');
  const seed=item?{q:query,barcode:item.barcode||'',pcId:item.identity?.pricechartingProductId||item.valuation?.identity?.pricechartingProductId||null,cexId:item.cexProductId||null}:null;
  const condition=item?.condition||'Good';
  const readOnly=item&&!RetroCheckout.available(item);
  window.buyCheckSession={item,seed,pcId:null,cexId:null,cexVariants:[],condition};
- open(`<h2>Identify → Decide → ${item?'Update value':'Acquire'}</h2>${item?`<p><strong>${escapeText(item.title)}</strong> · HQ value ${knownMoney(independentMarketValue(item))} · eBay listed ${knownMoney(ebayListedPrice(item))}</p>`:'<button class="link-button" onclick="quickBuy()">Quick entry without research</button>'}<p class="muted">Type or scan the item. RetroHQ handles identification, CeX grading and live evidence in the background.</p>
-<div class="counter-search"><label>What is the item?</label><div class="counter-search-row"><input id="bcDesc" class="input counter-input" value="${escapeText(query)}" autofocus oninput="buyLookupChanged()" placeholder="e.g. PS3 Slim 320GB Scarlet Red" onkeydown="if(event.key==='Enter'){event.preventDefault();autoMarketSearch();}"><button id="autoSearchBtn" class="btn primary" onclick="autoMarketSearch()">Search</button></div><small class="muted">Press Enter to search. You will only be asked to confirm when RetroHQ is genuinely unsure.</small></div>
-<button class="btn secondary" onclick="photoIdentify()">Photo search</button><button class="btn secondary" onclick="scanBarcode()">Scan barcode</button><small class="muted">Taking or selecting a photo automatically sends it to OpenAI for identification; API charges apply.</small><div class="formgrid buy-basics"><div class="field"><label>Purchase price (£)</label><input id="bcAsk" class="input" type="number" step="0.01" value="${item?.buy??''}" ${item?'readonly':''} placeholder="Enter amount paid" oninput="buyCheckCalc()"></div><div class="field"><label>Barcode / EAN (optional)</label><input id="bcBarcode" class="input" inputmode="numeric" value="${escapeText(item?.barcode||'')}" oninput="buyLookupChanged()" onkeydown="if(event.key==='Enter'){event.preventDefault();autoMarketSearch();}"></div></div>
+ open(`<h2>${item?'Check price':'Identify → Decide → Acquire'}</h2>${item?`<p><strong>${escapeText(item.title)}</strong> · HQ value ${knownMoney(independentMarketValue(item))} · eBay listed ${knownMoney(ebayListedPrice(item))}</p>`:'<button class="link-button" onclick="quickBuy()">Quick entry without research</button>'}${item?'<p class="muted">Compare CeX prices and eBay asking prices. If the listing title is long, search using the product name and platform or model.</p>':'<p class="muted">Type or scan the item. RetroHQ handles identification, CeX grading and live evidence in the background.</p>'}
+<div class="counter-search"><label for="bcDesc">${item?'Product to price':'What is the item?'}</label><div class="counter-search-row"><input id="bcDesc" class="input counter-input" value="${escapeText(query)}" autofocus oninput="buyLookupChanged()" placeholder="e.g. PS3 Slim 320GB Scarlet Red" onkeydown="if(event.key==='Enter'){event.preventDefault();autoMarketSearch();}"><button id="autoSearchBtn" class="btn primary" onclick="autoMarketSearch()">Search</button></div><small class="muted">Press Enter to search. You will only be asked to confirm when RetroHQ is genuinely unsure.</small></div>
+<button class="btn secondary" onclick="photoIdentify()">Photo search</button><button class="btn secondary" onclick="scanBarcode()">Scan barcode</button><small class="muted">Taking or selecting a photo automatically sends it to OpenAI for identification; API charges apply.</small><div class="formgrid buy-basics">${item?'':'<div class="field"><label>Purchase price (£)</label><input id="bcAsk" class="input" type="number" step="0.01" placeholder="Enter amount paid" oninput="buyCheckCalc()"></div>'}<div class="field"><label>Barcode / EAN (optional)</label><input id="bcBarcode" class="input" inputmode="numeric" value="${escapeText(item?.barcode||'')}" oninput="buyLookupChanged()" onkeydown="if(event.key==='Enter'){event.preventDefault();autoMarketSearch();}"></div></div>
 <div class="buy-grade-card"><div><label>Condition</label><div class="quality-buttons"><button type="button" data-quality="Excellent" onclick="setBuyCondition('Excellent')">Excellent</button><button type="button" data-quality="Good" onclick="setBuyCondition('Good')">Good</button><button type="button" data-quality="Poor" onclick="setBuyCondition('Poor')">Poor</button></div></div><div><label>Included</label><div class="accessory-checks"><label id="bcBoxWrap"><input id="bcBox" type="checkbox" ${item?.accessories?.box?'checked':''} onchange="this.dataset.userSet='1';buyAccessoryChanged('box')"> <span id="bcBoxLabel">Box</span></label><label id="bcControllerWrap"><input id="bcController" type="checkbox" ${item?.accessories?.controller?'checked':''} onchange="buyAccessoryChanged('controller')"> Controller</label><label id="bcCablesWrap"><input id="bcCables" type="checkbox" ${item?.accessories?.cables?'checked':''} onchange="buyAccessoryChanged('cables')"> Cables</label></div></div><div id="bcGradeHint" class="grade-hint"></div></div>
 <div id="autoSearchStatus" class="auto-status">Ready — type the item and press Enter.</div><div id="autoEvidence"></div><div id="bcLinks"></div>
 <div class="formgrid value-fields"><div class="field"><label>RetroHQ UK Market Value</label><input id="bcMarket" class="input" type="number" readonly placeholder="Waiting for live UK evidence"></div><div class="field"><label>Manual override (optional)</label><input id="bcOverride" name="retrohq_market_override" class="input" type="number" step="0.01" autocomplete="off" placeholder="Leave blank to use RetroHQ value" oninput="buyCheckCalc()"><small id="overrideHint" class="muted">Only use this when you deliberately want to replace RetroHQ's calculated value.</small></div></div>
-<details class="card" ${item?'hidden':''}><summary>Storage and buying trip</summary><div class="formgrid"><label>Area<input class="input" id="bcArea"></label><label>Shelf<input class="input" id="bcShelf"></label><label>Buying trip / lot<input class="input" id="bcBatch" list="batchNames"><datalist id="batchNames">${[...new Set(state.items.map(i=>i.batchName).filter(Boolean))].map(n=>'<option value="'+escapeText(n)+'">').join('')}</datalist></label><label>Category<select class="select" id="bcCategory"><option>Video Game</option><option>Console</option><option>Toy</option><option>Clothing</option><option>Trading Card</option><option>Accessory</option><option>Collectible</option></select></label></div></details><div id="acquisitionPhotoSummary"></div>${buyingCostsHtml("bc",item?.buyingEstimate?.costs)}<div id="bcDecision" class="decision-panel"></div>${review?importReviewHtml(review):''}<div id="acquireError" role="status"></div><div class="modal-actions acquire-actions">${item?'<button class="btn secondary" onclick="closeModal()">Close</button>'+(readOnly?'':review?'<button class="btn secondary" onclick="saveExistingValue(false,true)">Save identity only</button>'+(nextUnreviewedImport(item)?'<button class="btn secondary" onclick="saveExistingValue(true)">Save &amp; review next</button>':'')+'<button class="btn primary" onclick="saveExistingValue()">Confirm item &amp; save value</button>':'<button class="btn primary" onclick="saveExistingValue()">Save value to this item</button>'):'<button class="btn secondary" onclick="closeModal()">Decline</button><button class="btn secondary" onclick="saveAcquisition(true)">Save & next</button><button class="btn primary" onclick="saveAcquisition(false)">Save item</button>'}</div>`);
- if(review){
-  $('#bcImportReview').oninput=event=>{
-   if(!event.target.id.startsWith('bcReview-'))return;
-   $('#bcConfirmImport').checked=false;
-   $('#bcImportMatch').textContent=[$('#bcReview-title').value,$('#bcReview-platform').value].filter(Boolean).join(' · ');
-  };
- }
+<details class="card" ${item?'hidden':''}><summary>Storage and buying trip</summary><div class="formgrid"><label>Area<input class="input" id="bcArea"></label><label>Shelf<input class="input" id="bcShelf"></label><label>Buying trip / lot<input class="input" id="bcBatch" list="batchNames"><datalist id="batchNames">${[...new Set(state.items.map(i=>i.batchName).filter(Boolean))].map(n=>'<option value="'+escapeText(n)+'">').join('')}</datalist></label><label>Category<select class="select" id="bcCategory"><option>Video Game</option><option>Console</option><option>Toy</option><option>Clothing</option><option>Trading Card</option><option>Accessory</option><option>Collectible</option></select></label></div></details><div id="acquisitionPhotoSummary"></div>${item?'':buyingCostsHtml("bc")+'<div id="bcDecision" class="decision-panel"></div>'}<div id="acquireError" role="status"></div><div class="modal-actions acquire-actions">${item?'<button class="btn secondary" onclick="closeModal()">Close</button>'+(readOnly?'':(nextImportedPriceCheck(item)?'<button class="btn secondary" onclick="saveExistingValue(true)">Save &amp; check next</button>':'')+'<button class="btn primary" onclick="saveExistingValue()">Save value</button>'):'<button class="btn secondary" onclick="closeModal()">Decline</button><button class="btn secondary" onclick="saveAcquisition(true)">Save & next</button><button class="btn primary" onclick="saveAcquisition(false)">Save item</button>'}</div>`);
  if(item?.accessories)$('#bcBox').dataset.userSet='1';
  if(item?.identity)updateCompletenessUI(item.identity);
  $$('.quality-buttons button').forEach(button=>button.classList.toggle('active',button.dataset.quality===condition));
@@ -715,10 +684,10 @@ function applySmartValuation(){
 window.renderMarketResult=async(d,current)=>{const status=$('#autoSearchStatus'),ev=$('#autoEvidence');if(d.pricechartingProductId)window.buyCheckSession.pcId=String(d.pricechartingProductId);if(d.lockedIdentity||d.provisionalIdentity)updateCompletenessUI(d.lockedIdentity||d.provisionalIdentity);
  if(d.needsRefinement){window.buyCheckSession.benchmark=null;window.buyCheckSession.valuation=null;$('#bcMarket').value='';status.textContent='One quick question — choose the console generation.';ev.innerHTML=`<div class="evidence-panel"><h3>Which one is it?</h3><div class="candidate-list">${(d.refinements||[]).map(r=>`<button class="candidate-card" onclick="refineMarketSearch('${String(r.query).replace(/'/g,'')}')"><strong>${r.label}</strong><small>Use this generation</small></button>`).join('')}</div></div>${ebayMarketListings(d.evidence)}`;buyCheckCalc();return;}
  if(d.needsConfirmation){window.buyCheckSession.benchmark=null;window.buyCheckSession.valuation=null;$('#bcMarket').value='';status.classList.add('action-required');status.textContent=photoSearchNote?'Photo identified — confirm the catalogue edition/platform below.':'RetroHQ found more than one credible match.';ev.innerHTML=`<div class="evidence-panel"><h3>Which item is this?</h3><div class="candidate-list">${(d.candidates||[]).slice(0,6).map(c=>`<button class="candidate-card" onclick="selectMarketCandidate('${String(c.id).replace(/'/g,'')}')"><strong>${c['product-name']||'Unknown product'}</strong><span>${c['console-name']||'Unknown platform'}</span><small>Confirm this item →</small></button>`).join('')}</div></div>${ebayMarketListings(d.evidence)}`;buyCheckCalc();return;}
- status.classList.remove('action-required');updateImportMatch(d.lockedIdentity);if($('#bcCategory')&&d.lockedIdentity?.type==='hardware')$('#bcCategory').value='Console';window.buyCheckSession.lockedIdentity=d.lockedIdentity||null;window.buyCheckSession.benchmark=d.marketValue!=null?Number(d.marketValue):null;window.buyCheckSession.evidence=d.evidence||[];renderBuyGradeHint();
+ status.classList.remove('action-required');if($('#bcCategory')&&d.lockedIdentity?.type==='hardware')$('#bcCategory').value='Console';window.buyCheckSession.lockedIdentity=d.lockedIdentity||null;window.buyCheckSession.benchmark=d.marketValue!=null?Number(d.marketValue):null;window.buyCheckSession.evidence=d.evidence||[];renderBuyGradeHint();
  const selectedCex=(d.evidence||[]).find(x=>x.provider==='CeX UK'&&x.status==='Live');window.buyCheckSession.cexCatalogueGrade=selectedCex?.grade||null;window.buyCheckSession.cexCatalogueProduct=selectedCex?.product||null;if(d.lockedIdentity?.type==='software'&&selectedCex?.grade&&$('#bcBox'))$('#bcBox').checked=selectedCex.grade!=='Unboxed';renderBuyGradeHint();
  const hasPC=(d.evidence||[]).some(x=>x.provider==='PriceCharting'&&x.status==='Live');
- if(d.marketValue!=null){status.textContent='✓ UK benchmark ready — valuing the actual item in front of you.';}
+ if(d.marketValue!=null){status.textContent=window.buyCheckSession.item?'UK benchmark ready'+(selectedCex?.product?' · '+selectedCex.product:''):'✓ UK benchmark ready — valuing the actual item in front of you.';}
  else{$('#bcMarket').value='';status.textContent=hasPC?'✓ Item identified by PriceCharting. UK pricing still needs a CeX match.':'No confirmed UK benchmark yet.';}
  const providerSummary=(d.evidence||[]).map(x=>x.provider+': '+(x.status==='Live'&&x.retail!=null?'retail '+money(x.retail):x.status||'Unknown')).join(' · ');
  const cexAction=(d.evidence||[]).find(x=>x.provider==='CeX UK');
@@ -744,7 +713,7 @@ window.buyLookupChanged=()=>{
  const old=window.buyCheckSession;
  if(!$('#bcDesc')||!old)return;
  window.buyCheckSession={item:old.item,seed:old.seed,condition:old.condition,pcId:null,cexId:null};
- $('#bcOverride').value='';$('#bcMarket').value='';$('#autoEvidence').innerHTML='';if($('#bcConfirmImport'))$('#bcConfirmImport').checked=false;
+ $('#bcOverride').value='';$('#bcMarket').value='';$('#autoEvidence').innerHTML='';
  const status=$('#autoSearchStatus');
  status.classList.remove('action-required');status.textContent='Ready to search.';
  $('#autoSearchBtn').disabled=false;
@@ -1210,7 +1179,7 @@ function saleFulfilmentControls(i){const phases=['Sold','Packaged','Dispatched',
 window.advanceFulfilment=id=>{const i=state.items.find(i=>i.id===id),phases=['Sold','Packaged','Dispatched','Delivered','Completed'];if(!i?.sale||i.sale.reviewNeeded)return;const n=phases.indexOf(i.status);if(n<0||n>=phases.length-1)return;i.status=phases[n+1];i.sale.status=i.status;i.timeline.push(['Fulfilment',i.status+' recorded locally; no marketplace update sent.']);render();};
 window.editItem=id=>{
  const i=state.items.find(x=>x.id===id);if(!i)return;
- open('<h2>Edit item details</h2><p>'+escapeText(i.title)+'</p><div class="formgrid"><label>Purchase price (£)<input id="editBuy" class="input" type="number" min="0" step="0.01"></label><label>Preparation costs (£)<input id="editPreparation" class="input" type="number" min="0" step="0.01" placeholder="Unknown"></label><label>Category<select id="editCategory" class="select"></select></label><label>eBay listed price<input id="editEbayPrice" class="input" readonly></label><label>HQ UK market value (£)<input id="editValue" class="input" type="number" min="0" step="0.01" placeholder="Unknown"></label><label>Area<input id="editArea" class="input"></label><label>Shelf / location<input id="editShelf" class="input"></label></div><label>Notes<textarea id="editItemNotes"></textarea></label><p class="muted">The eBay listed price comes from your saved listing. Enter an HQ value only when you have evidence for it. Leave unknown costs and values blank where applicable.</p><div id="editItemError" role="status"></div><div class="modal-actions"><button class="btn secondary" onclick="closeModal()">Cancel</button><button class="btn primary" onclick="saveItemEdit('+id+')">Save details</button></div>');
+ open('<h2>Edit item details</h2><p>'+escapeText(i.title)+'</p><div class="formgrid"><label>Purchase price (£)<input id="editBuy" class="input" type="number" min="0" step="0.01"></label><label>Preparation costs (£)<input id="editPreparation" class="input" type="number" min="0" step="0.01" placeholder="Unknown"></label><label>Category<select id="editCategory" class="select"></select></label><label>eBay listed price<input id="editEbayPrice" class="input" readonly></label><label>HQ UK market value (£)<input id="editValue" class="input" type="number" min="0" step="0.01" placeholder="Unknown"></label><label>Area<input id="editArea" class="input"></label><label>Shelf / location<input id="editShelf" class="input"></label></div><label>Notes<textarea id="editItemNotes"></textarea></label><p class="muted">The eBay listed price comes from your saved listing. Enter an HQ value only when you have evidence for it. Leave unknown costs and values blank where applicable.</p><div id="editItemError" role="status"></div><div class="modal-actions"><button class="btn secondary" onclick="closeModal()">Cancel</button><button class="btn secondary" onclick="identifyExistingItem('+id+')">Correct product details</button><button class="btn primary" onclick="saveItemEdit('+id+')">Save details</button></div>');
  $('#editBuy').value=i.buy??'';$('#editPreparation').value=i.processingCosts??'';if(RetroItems.sold(i))$('#editValue').disabled=true;$('#editValue').value=independentMarketValue(i)??'';
  const options=new Set(['Video Game','Console','Toy','Accessory','Trading Card','Clothing','Collectible','Other','Uncategorised',i.category]);
  for(const category of options)if(category)$('#editCategory').add(new Option(category,category));
@@ -1223,7 +1192,7 @@ window.checkItemMarket=id=>{
  const item=state.items.find(record=>record.id===id);
  if(item)buyCheck(item);
 };
-window.saveExistingValue=(reviewNext=false,identityOnly=false)=>{
+window.saveExistingValue=(checkNext=false)=>{
  const session=window.buyCheckSession,item=session?.item;
  const error=$('#acquireError');
  if(!item||!error)return;
@@ -1233,33 +1202,16 @@ window.saveExistingValue=(reviewNext=false,identityOnly=false)=>{
   if(index<0||!RetroCheckout.available(item))throw Error('Stock changed. Reopen the item before saving.');
   const override=$('#bcOverride').value.trim(),raw=override||$('#bcMarket').value;
   const now=new Date().toISOString();
-  let record=item;
-  if(reviewableImport(item)){
-   const details={confirmed:$('#bcConfirmImport').checked,barcode:$('#bcBarcode').value};
-   for(const key of ['title','platform','region','manufacturer','category'])details[key]=$('#bcReview-'+key).value;
-   const identity=session.lockedIdentity;
-   const sameMatch=identity?.confirmedProduct===details.title&&identity?.platform===details.platform&&
-    (identity?.type==='software'?details.category==='Video Game':identity?.type==='hardware'?details.category==='Console':true);
-   if(!identityOnly&&!override&&raw&&!sameMatch)throw Error('The review details differ from the researched item. Search for the exact item again or enter a verified manual value.');
-   if(sameMatch&&identity.pricechartingProductId)details.catalogue={id:String(identity.pricechartingProductId),title:details.title,platform:details.platform};
-   record=RetroItems.identify(item,details,now);
-  }
-  if(identityOnly){
-   if(record===item)throw Error('No pending identity to confirm.');
-   state.items[index]=record;
-   if(!persistState()){state.items[index]=item;return;}
-   closeModal();render();return;
-  }
   if(raw===''||!Number.isFinite(Number(raw))||Number(raw)<0)throw Error('Check the exact item and UK benchmark, or enter a manual value.');
   const value=Math.round(Number(raw)*100)/100;
   const valuation={...session.valuation,finalValue:value,acquisitionValue:item.valuation?.acquisitionValue??null,timestamp:now,stale:false,staleReasons:[]};
   if(override)Object.assign(valuation,{source:'Manual inventory valuation',confidence:'manual',recommendedMax:Math.round(value*state.settings.offerPct)/100});
   const cex=(session.evidence||[]).find(row=>row.provider==='CeX UK'&&row.status==='Live');
   const accessories={box:$('#bcBox').checked,controller:$('#bcController').checked,cables:$('#bcCables').checked};
-  state.items[index]=RetroItems.saveValuation(record,{value,valuation,marketEvidence:session.evidence||[],condition:session.condition,accessories,
+  state.items[index]=RetroItems.saveValuation(item,{value,valuation,marketEvidence:session.evidence||[],condition:session.condition,accessories,
    cexProductId:cex?.productId??null,cexGrade:cex?.grade??null,cexProduct:cex?.product??null},now);
   if(!persistState()){state.items[index]=item;return;}
-  const next=reviewNext?nextUnreviewedImport(item):null;
+  const next=checkNext?nextImportedPriceCheck(item):null;
   closeModal();
   if(next){openItem(next.id);buyCheck(next);}else render();
  }catch(exception){error.textContent=exception.message;error.className='action-required';}
