@@ -55,3 +55,15 @@ html[data-theme] #menu{color:var(--hq-ink)}
 /* Keep the existing responsive behaviour for this appearance trial. */
 @media(max-width:950px){header{padding:20px 22px}.quick-actions{padding:12px 22px}#root{padding:22px}.demo{max-width:180px;text-align:center}}
 @media(max-width:620px){header{padding:18px 14px;min-height:90px}header h1{font-size:24px}.quick-actions{padding:10px 14px}#root{padding:16px}.card,.metric,.action{padding:18px}.hero{padding:20px!important}.hero h2{font-size:25px}.modal{padding:20px}.formgrid{gap:16px}}
+
+/* HQ score uses the same scale in the store overview and on stock records. */
+.hq-store-summary{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);align-items:center;gap:22px}
+.hq-meter{min-width:0}
+.hero .hq-meter{width:min(300px,100%);margin-top:14px}
+.hq-meter-heading{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}
+.hq-meter-heading b{font-size:1.25rem;font-variant-numeric:tabular-nums}
+.hq-meter-track{position:relative;height:12px;margin:9px 5px;border-radius:12px;background:linear-gradient(90deg,#bd514a 0 33%,#d28a29 33% 66%,#368463 66% 100%)}
+.hq-meter-track span{position:absolute;left:var(--score);top:50%;transform:translate(-50%,-50%);height:20px;width:7px;border-radius:4px;background:var(--hq-ink);border:1px solid var(--hq-surface)}
+.hq-meter-empty{background:var(--hq-line)}
+.hq-meter small{display:block}
+@media(max-width:620px){.hq-store-summary{grid-template-columns:1fr;gap:12px}}

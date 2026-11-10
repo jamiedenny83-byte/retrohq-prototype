@@ -12,6 +12,21 @@ function economics(i){
  const revenue=Number(s.price)+Number(s.shippingRevenue),fee=s.feeType==='percent'?Number(s.price)*Number(s.feeValue)/100:Number(s.feeValue),net=round(revenue-fee-Number(s.shipping)-Number(s.packaging)-Number(s.promotion)),invested=Number(i.buy)+Number(i.processingCosts),profit=round(net-invested);
  return {profit,net,margin:revenue?profit/revenue*100:0,roi:invested?profit/invested*100:null};
 }
+function hqScore(margin,velocity){
+ if(!Number.isFinite(margin)||!Number.isFinite(velocity)||velocity<0||velocity>100)return null;
+ return Math.round(Math.min(100,velocity*.55+Math.max(0,margin)*.675));
+}
+function confirmedSalesSummary(items){
+ let count=0,profit=0,revenue=0;
+ for(const item of items){
+  if(item.sale?.feeEstimated||!['fixed','percent'].includes(item.sale?.feeType))continue;
+  const outcome=economics(item);
+  if(outcome.profit===null)continue;
+  count++;profit+=outcome.profit;
+  revenue+=Number(item.sale.price)+Number(item.sale.shippingRevenue);
+ }
+ return {count,profit:count?round(profit):null,margin:revenue>0?100*profit/revenue:null};
+}
 function saleAmounts(i,defaultFee){
  const s=i.sale;if(!s)return {price:null,fee:null,feeType:null,feeValue:null,estimated:false};
  let type=s.feeType,value=s.feeValue,estimated=s.feeEstimated===true;
@@ -41,6 +56,6 @@ function recommendation(i,market,feePercent,margin,now){
  const floor=Math.ceil((Number(i.buy)+Number(i.processingCosts)+Number(c.postage)+Number(c.packaging))/(1-feePercent/100-margin/100)*100)/100;
  const price=round(Math.max(floor,Number(market)));return {action:price<Number(i.listing.price)?'Review a lower asking price':'Review photos, completeness and demand before reducing',price,floor};
 }
-const api={age,active,economics,saleAmounts,reportPeriod,stockSystem,systemStock,queue,batches,recommendation};if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.RetroOps=api;
+const api={age,active,economics,hqScore,confirmedSalesSummary,saleAmounts,reportPeriod,stockSystem,systemStock,queue,batches,recommendation};if(typeof module!=='undefined'&&module.exports)module.exports=api;else root.RetroOps=api;
 })(typeof globalThis!=='undefined'?globalThis:this);
 
