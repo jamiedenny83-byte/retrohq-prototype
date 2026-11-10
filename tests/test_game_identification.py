@@ -19,6 +19,34 @@ class FakeResponse:
 
 
 class GameIdentificationTests(unittest.TestCase):
+    def test_existing_stock_gets_exact_cex_price_even_when_other_sources_fail(self):
+        from urllib.request import urlopen
+        from urllib.parse import urlencode
+        from http.server import ThreadingHTTPServer
+        import threading
+
+        query = "The Incredibles Sony PlayStation 2"
+        intent = server.infer_intent(query)
+        self.assertEqual(intent["gameTitle"], "the incredibles")
+        self.assertEqual(intent["platform"], "PlayStation 2")
+        httpd = ThreadingHTTPServer(("127.0.0.1",0),server.H)
+        threading.Thread(target=httpd.serve_forever,daemon=True).start()
+        self.addCleanup(httpd.server_close)
+        self.addCleanup(httpd.shutdown)
+        url = f"http://127.0.0.1:{httpd.server_port}/api/market-search?" + urlencode({"q":query,"stockPrice":1})
+        variant = {"product":"Incredibles, The","productId":"INC-PS2","retail":4}
+        for source in (RuntimeError("provider interrupted"),{"mode":"candidates","intent":intent}):
+            with self.subTest(source=source), \
+                 patch.object(server,"pricecharting_lookup",side_effect=[source]), \
+                 patch.object(server,"ebay_market_evidence",side_effect=RuntimeError("provider interrupted")), \
+                 patch.object(server,"cex_search",side_effect=[{"variants":[variant]},{"ok":True,**variant,"selectedByUser":True}]):
+                with urlopen(url,timeout=5) as response:
+                    data = json.load(response)
+                self.assertEqual(data["marketValue"],4)
+                self.assertEqual(data["lockedIdentity"]["source"],"cex-exact")
+                self.assertEqual(data["evidence"][0]["status"],"Unavailable")
+                self.assertFalse(data["evidence"][-1]["selectedByUser"])
+
     def test_snes_aladdin_search_handles_catalogue_alias_and_optional_year(self):
         from urllib.parse import parse_qs
 
@@ -433,8 +461,8 @@ class GameIdentificationTests(unittest.TestCase):
         script=(Path(__file__).resolve().parent.parent/"app.js").read_text()
         self.assertIn("const priceReference=pcRecord?",script)
         self.assertIn("moneyUSD(pcPrice[key])",script)
-        self.assertIn("View price evidence</summary>${priceReference}${cexPrices}",script)
-        self.assertIn("Game identified. There is no confirmed UK selling value yet",script)
+        self.assertIn("View price evidence</summary>${priceReference}",script)
+        self.assertIn("No confirmed UK benchmark yet.",script)
 
 
 if __name__=="__main__":

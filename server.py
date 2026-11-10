@@ -756,6 +756,8 @@ def _platform_product_kind(query, phrases):
                    r"(?:disc|disk|cartridge|cart) only|(?:fully )?tested(?: and working)?|manual|game|vgc")
     q = re.sub(r"\b((?:" + platforms + r")(?: (?:game|disc|disk|cartridge|cart))?)(?: (?:" +
                descriptors + r"))+$", r"\1", q)
+    if any(phrase.startswith(("ps","playstation")) for phrase in phrases):
+        q = re.sub(r"\bsony (?=(?:"+platforms+r")\b)", "", q)
     remainder = q
     for phrase in platform_phrases:
         if re.search(r"\b" + re.escape(phrase) + r"\b", remainder):
@@ -1071,6 +1073,137 @@ class H(SimpleHTTPRequestHandler):
             result = ebay_seller.test_connection()
         self.send_json(result, 200 if result.get("ok") else 400)
 
+    def market_provider(self, name, lookup, *args, **kwargs):
+        try:
+            result=lookup(*args,**kwargs)
+            if not isinstance(result,dict): raise ValueError("Invalid provider result")
+            return result
+        except Exception as error:
+            self.log_error("%s market provider failed (%s)",name,type(error).__name__)
+            return {"ok":False,"status":name+" unavailable","detail":"This source could not complete the lookup. Try again."}
+
+    def market_ebay_evidence(self,q):
+        try:
+            return ebay_market_evidence(q)
+        except Exception as error:
+            self.log_error("eBay UK market provider failed (%s)",type(error).__name__)
+            return [{"provider":"eBay UK","status":"Unavailable","detail":"This source could not complete the lookup. Try again."}]
+
+    def market_search(self,p):
+        q=(p.get("q") or [""])[0].strip(); barcode=(p.get("barcode") or [""])[0].strip(); selected_id=(p.get("id") or [""])[0].strip(); cex_grade=(p.get("cexGrade") or [""])[0].strip() or None; cex_id=(p.get("cexId") or [""])[0].strip() or None
+        lookup = self.market_provider("PriceCharting", pricecharting_lookup, q, barcode, selected_id)
+        if not lookup.get("mode"):
+            lookup = {"mode":"error","result":lookup}
+        initial_cex = None
+        if p.get("stockPrice") and lookup.get("mode")=="candidates" and not barcode and not selected_id:
+            search_intent=lookup.get("intent") or infer_intent(q)
+            if search_intent.get("type")=="software" and search_intent.get("platform"):
+                initial_cex=self.market_provider("CeX UK",cex_search,q,search_intent,grade=cex_grade,selected_product_id=cex_id)
+                if initial_cex.get("ok") or initial_cex.get("variants"):
+                    lookup={"mode":"error","intent":search_intent,"result":{"status":"Edition choice available",
+                        "detail":"CeX matched the title and platform directly. PriceCharting found multiple editions."}}
+        if lookup.get("mode") == "invalid-barcode":
+            self.send_json({"ok":False,"status":lookup["result"]["detail"],"marketValue":None},400); return
+        if lookup.get("resolvedQuery"):
+            q = lookup["resolvedQuery"]
+        if lookup.get("mode") == "refinements":
+            self.send_json({"query":q,"barcode":barcode,"marketValue":None,"confidence":"needs-refinement","needsRefinement":True,"evidence":self.market_ebay_evidence(q),"intent":lookup.get("intent"),"refinements":lookup.get("refinements",[]),"reason":lookup.get("reason")}); return
+        if lookup.get("mode") == "candidates":
+            self.send_json({"query":q,"barcode":barcode,"marketValue":None,"confidence":"needs-confirmation","needsConfirmation":True,"evidence":self.market_ebay_evidence(q),"intent":lookup.get("intent"),"provisionalIdentity":cex_fallback_identity(q, lookup.get("intent") or infer_intent(q)),"candidates":lookup.get("candidates",[]),"reason":lookup.get("reason")}); return
+        pc = lookup.get("result", {})
+        market_intent=confirmed_market_intent(q,pc,lookup.get('intent') or infer_intent(q))
+        identity = canonical_identity(q,pc,market_intent) if pc.get("ok") else None
+        evidence = self.market_ebay_evidence(q)
+
+        if pc.get("ok"):
+            pr = pc.get("prices") or {}
+            parts=[]
+            for label,key in (("Loose","loose-price"),("CIB","cib-price"),("New","new-price"),("Retail CIB buy","retail-cib-buy"),("Retail CIB sell","retail-cib-sell")):
+                if pr.get(key) is not None: parts.append(f"{label} ${pr[key]:.2f}")
+            if pc.get("salesVolume") not in (None, ""): parts.append(f"Annual sales volume {pc['salesVolume']}")
+            evidence.append({"provider":"PriceCharting","status":"Live","currency":"USD","product":pc.get("product"),"console":pc.get("console"),
+                             "prices":pr,"salesVolume":pc.get("salesVolume"),"productId":pc.get("id"),
+                             "detail":f"Matched: {pc.get('product','Unknown')} — {pc.get('console','Unknown')}. " + " · ".join(parts)})
+            cex = self.market_provider("CeX UK",cex_search,q, market_intent, grade=cex_grade, identity=identity, selected_product_id=cex_id)
+            # One exact title/platform match after catalogue identity confirmation
+            # needs no second user click. Editions and ambiguous records still do.
+            variants=cex.get("variants") or []
+            if (not cex_id and not p.get("cexChoose") and not market_intent.get("releaseYear")
+                and len(variants)==1 and identity.get("type")=="software"
+                and identity.get("confirmedProduct") and
+                _cex_game_words(variants[0].get("product"))==_cex_game_words(identity["confirmedProduct"])):
+                candidate=self.market_provider("CeX UK",cex_search,q,market_intent,grade=cex_grade,
+                               identity=identity,selected_product_id=variants[0]["productId"])
+                if candidate.get("ok"):
+                    cex=candidate
+                    cex["selectedByUser"]=False
+                    cex["matchQuality"]="Single exact title and platform match"
+            if cex.get("ok"):
+                cparts=[]
+                if cex.get("retail") is not None: cparts.append(f"retail £{cex['retail']:.2f}")
+                if cex.get("cash") is not None: cparts.append(f"cash £{cex['cash']:.2f}")
+                if cex.get("voucher") is not None: cparts.append(f"voucher £{cex['voucher']:.2f}")
+                evidence.append({"provider":"CeX UK","status":"Live","currency":"GBP","product":cex.get("product"),"productId":cex.get("productId"),"retail":cex.get("retail"),"cash":cex.get("cash"),"voucher":cex.get("voucher"),"cashSource":cex.get("cashSource"),"voucherSource":cex.get("voucherSource"),"stock":cex.get("stock"),"grade":cex.get("grade"),"matchQuality":cex.get("matchQuality"),"selectedByUser":cex.get("selectedByUser",False),"identity":identity,"detail":f"Matched: {cex.get('product')}. " + " · ".join(cparts)})
+                market_value = cex.get("retail")
+                method = "CeX UK retail is the identity-validated benchmark for the selected grade. RetroHQ then adjusts that benchmark for the actual item's known completeness. Cash and voucher trade-in are evidence only and are never used as market value."
+            else:
+                evidence.append({"provider":"CeX UK","status":cex.get("status","Unavailable"),"detail":cex.get("detail",""),"variants":cex.get("variants",[])})
+                market_value = None
+                method = "Live PriceCharting reference loaded. CeX pricing is awaiting a grade choice where multiple catalogue records exist; uncertain evidence is excluded from UK Market Value."
+        else:
+            evidence.append({"provider":"PriceCharting","status":pc.get("status","Unavailable"),"detail":pc.get("detail","")})
+            intent = lookup.get("intent") or infer_intent(q)
+            fallback = cex_fallback_identity(q, intent)
+            barcode_match=bool(lookup.get('cexBarcodeId') and not cex_id)
+            cex = initial_cex or self.market_provider("CeX UK",cex_search,q, intent, grade=cex_grade, identity=fallback, selected_product_id=cex_id or lookup.get('cexBarcodeId'))
+            variants=cex.get("variants") or []
+            exact_stock_match=False
+            if (p.get("stockPrice") and not cex_id and not p.get("cexChoose") and not intent.get("releaseYear")
+                and intent.get("type")=="software" and intent.get("platform") and len(variants)==1
+                and _cex_game_words(variants[0].get("product"))==_cex_game_words(intent.get("gameTitle"))):
+                candidate=self.market_provider("CeX UK",cex_search,q,intent,grade=cex_grade,selected_product_id=variants[0]["productId"])
+                if candidate.get("ok"):
+                    cex=candidate
+                    cex["selectedByUser"]=False
+                    exact_stock_match=True
+            if barcode_match and cex.get('ok'):
+                cex['selectedByUser']=False
+                cex['matchedByBarcode']=True
+                cex['matchQuality']='Exact EAN catalogue match'
+            if cex.get("ok"):
+                confirmed = bool(cex.get("selectedByUser"))
+                # Strongly matched hardware can use CeX without PriceCharting.
+                # Games and vague hardware queries require explicit confirmation.
+                strong_hardware = bool(fallback and fallback["attributes"] and cex.get("score", 0) >= 40)
+                usable = (confirmed or exact_stock_match or cex.get('matchedByBarcode') or strong_hardware) and cex.get("retail") is not None
+                evidence.append({"provider":"CeX UK","status":"Live","currency":"GBP",
+                    "product":cex.get("product"),"productId":cex.get("productId"),
+                    "retail":cex.get("retail"),"cash":cex.get("cash"),
+                    "voucher":cex.get("voucher"),"stock":cex.get("stock"),
+                    "cashSource":cex.get("cashSource"),"voucherSource":cex.get("voucherSource"),
+                    "grade":cex.get("grade"),"score":cex.get("score"),
+                    "selectedByUser":confirmed,
+                    "matchQuality":"Confirmed CeX catalogue record" if confirmed else
+                                   "Single exact title and platform match" if exact_stock_match else
+                                   "Strong hardware match" if strong_hardware else "Needs confirmation",
+                    "detail":"CeX catalogue match found. " +
+                        ("UK retail benchmark ready." if usable else
+                         "Confirm the exact CeX record before using its retail price.")})
+                market_value = cex.get("retail") if usable else None
+                if usable:
+                    identity = dict(fallback or {"type":intent.get("type"),"platform":intent.get("platform"),
+                                               "family":intent.get("family"),"attributes":identity_attributes(q)})
+                    identity.update(confirmedProduct=cex.get("product"),label=cex.get("product"),
+                                    cexProductId=cex.get("productId"),source="cex-barcode" if cex.get('matchedByBarcode') else "cex-confirmed" if confirmed else "cex-exact" if exact_stock_match else "cex-strong")
+                    method="CeX UK retail benchmark independently verified without PriceCharting. RetroHQ applies condition and completeness adjustments; CeX cash and voucher are separate evidence."
+                else:
+                    method="CeX returned a possible match, but RetroHQ requires confirmation before using its retail price."
+            else:
+                evidence.append({"provider":"CeX UK","status":cex.get("status","Unavailable"),"detail":cex.get("detail",""),"variants":cex.get("variants",[])})
+                market_value=None
+                method="No confident UK benchmark. Check the CeX status and choose a matching catalogue variant if offered."
+        self.send_json({"query":q,"barcode":barcode,"marketValue":market_value,"confidence":"uk-retail-benchmark" if market_value is not None else ("reference-only" if pc.get("ok") else "unavailable"),"evidence":evidence,"method":method,"lockedIdentity":identity,"provisionalIdentity":cex_fallback_identity(q, lookup.get("intent") or infer_intent(q)),"pricechartingProductId":pc.get("id") if pc.get("ok") else None}); return
+
     def do_GET(self):
         u = urlparse(self.path)
         if u.path == "/api/ebay-live/status":
@@ -1127,97 +1260,14 @@ class H(SimpleHTTPRequestHandler):
                 self.send_json({'ok':False,'status':'Enter a product name (2–200 characters).'},400);return
             self.send_json(market_overview.identity_search(query,ebay_browse_search));return
         if u.path == "/api/market-search":
-            p = parse_qs(u.query); q=(p.get("q") or [""])[0].strip(); barcode=(p.get("barcode") or [""])[0].strip(); selected_id=(p.get("id") or [""])[0].strip(); cex_grade=(p.get("cexGrade") or [""])[0].strip() or None; cex_id=(p.get("cexId") or [""])[0].strip() or None
-            lookup = pricecharting_lookup(q, barcode, selected_id)
-            if lookup.get("mode") == "invalid-barcode":
-                self.send_json({"ok":False,"status":lookup["result"]["detail"],"marketValue":None},400); return
-            if lookup.get("resolvedQuery"):
-                q = lookup["resolvedQuery"]
-            if lookup.get("mode") == "refinements":
-                self.send_json({"query":q,"barcode":barcode,"marketValue":None,"confidence":"needs-refinement","needsRefinement":True,"evidence":ebay_market_evidence(q),"intent":lookup.get("intent"),"refinements":lookup.get("refinements",[]),"reason":lookup.get("reason")}); return
-            if lookup.get("mode") == "candidates":
-                self.send_json({"query":q,"barcode":barcode,"marketValue":None,"confidence":"needs-confirmation","needsConfirmation":True,"evidence":ebay_market_evidence(q),"intent":lookup.get("intent"),"provisionalIdentity":cex_fallback_identity(q, lookup.get("intent") or infer_intent(q)),"candidates":lookup.get("candidates",[]),"reason":lookup.get("reason")}); return
-            pc = lookup.get("result", {})
-            market_intent=confirmed_market_intent(q,pc,lookup.get('intent') or infer_intent(q))
-            identity = canonical_identity(q,pc,market_intent) if pc.get("ok") else None
-            evidence = ebay_market_evidence(q)
-
-            if pc.get("ok"):
-                pr = pc["prices"]
-                parts=[]
-                for label,key in (("Loose","loose-price"),("CIB","cib-price"),("New","new-price"),("Retail CIB buy","retail-cib-buy"),("Retail CIB sell","retail-cib-sell")):
-                    if pr.get(key) is not None: parts.append(f"{label} ${pr[key]:.2f}")
-                if pc.get("salesVolume") not in (None, ""): parts.append(f"Annual sales volume {pc['salesVolume']}")
-                evidence.append({"provider":"PriceCharting","status":"Live","currency":"USD","product":pc.get("product"),"console":pc.get("console"),
-                                 "prices":pr,"salesVolume":pc.get("salesVolume"),"productId":pc.get("id"),
-                                 "detail":f"Matched: {pc.get('product','Unknown')} — {pc.get('console','Unknown')}. " + " · ".join(parts)})
-                cex = cex_search(q, market_intent, grade=cex_grade, identity=identity, selected_product_id=cex_id)
-                # One exact title/platform match after catalogue identity confirmation
-                # needs no second user click. Editions and ambiguous records still do.
-                variants=cex.get("variants") or []
-                if (not cex_id and not p.get("cexChoose") and not market_intent.get("releaseYear")
-                    and len(variants)==1 and identity.get("type")=="software"
-                    and identity.get("confirmedProduct") and
-                    _cex_game_words(variants[0].get("product"))==_cex_game_words(identity["confirmedProduct"])):
-                    cex=cex_search(q,market_intent,grade=cex_grade,
-                                   identity=identity,selected_product_id=variants[0]["productId"])
-                    if cex.get("ok"):
-                        cex["selectedByUser"]=False
-                        cex["matchQuality"]="Single exact title and platform match"
-                if cex.get("ok"):
-                    cparts=[]
-                    if cex.get("retail") is not None: cparts.append(f"retail £{cex['retail']:.2f}")
-                    if cex.get("cash") is not None: cparts.append(f"cash £{cex['cash']:.2f}")
-                    if cex.get("voucher") is not None: cparts.append(f"voucher £{cex['voucher']:.2f}")
-                    evidence.append({"provider":"CeX UK","status":"Live","currency":"GBP","product":cex.get("product"),"productId":cex.get("productId"),"retail":cex.get("retail"),"cash":cex.get("cash"),"voucher":cex.get("voucher"),"cashSource":cex.get("cashSource"),"voucherSource":cex.get("voucherSource"),"stock":cex.get("stock"),"grade":cex.get("grade"),"matchQuality":cex.get("matchQuality"),"selectedByUser":cex.get("selectedByUser",False),"identity":identity,"detail":f"Matched: {cex.get('product')}. " + " · ".join(cparts)})
-                    market_value = cex.get("retail")
-                    method = "CeX UK retail is the identity-validated benchmark for the selected grade. RetroHQ then adjusts that benchmark for the actual item's known completeness. Cash and voucher trade-in are evidence only and are never used as market value."
-                else:
-                    evidence.append({"provider":"CeX UK","status":cex.get("status","Unavailable"),"detail":cex.get("detail",""),"variants":cex.get("variants",[])})
-                    market_value = None
-                    method = "Live PriceCharting reference loaded. CeX pricing is awaiting a grade choice where multiple catalogue records exist; uncertain evidence is excluded from UK Market Value."
-            else:
-                evidence.append({"provider":"PriceCharting","status":pc.get("status","Unavailable"),"detail":pc.get("detail","")})
-                intent = lookup.get("intent") or infer_intent(q)
-                fallback = cex_fallback_identity(q, intent)
-                barcode_match=bool(lookup.get('cexBarcodeId') and not cex_id)
-                cex = cex_search(q, intent, grade=cex_grade, identity=fallback, selected_product_id=cex_id or lookup.get('cexBarcodeId'))
-                if barcode_match and cex.get('ok'):
-                    cex['selectedByUser']=False
-                    cex['matchedByBarcode']=True
-                    cex['matchQuality']='Exact EAN catalogue match'
-                if cex.get("ok"):
-                    confirmed = bool(cex.get("selectedByUser"))
-                    # Strongly matched hardware can use CeX without PriceCharting.
-                    # Games and vague hardware queries require explicit confirmation.
-                    strong_hardware = bool(fallback and fallback["attributes"] and cex.get("score", 0) >= 40)
-                    usable = (confirmed or cex.get('matchedByBarcode') or strong_hardware) and cex.get("retail") is not None
-                    evidence.append({"provider":"CeX UK","status":"Live","currency":"GBP",
-                        "product":cex.get("product"),"productId":cex.get("productId"),
-                        "retail":cex.get("retail"),"cash":cex.get("cash"),
-                        "voucher":cex.get("voucher"),"stock":cex.get("stock"),
-                        "cashSource":cex.get("cashSource"),"voucherSource":cex.get("voucherSource"),
-                        "grade":cex.get("grade"),"score":cex.get("score"),
-                        "selectedByUser":confirmed,
-                        "matchQuality":"Confirmed CeX catalogue record" if confirmed else
-                                       "Strong hardware match" if strong_hardware else "Needs confirmation",
-                        "detail":"CeX catalogue match found. " +
-                            ("UK retail benchmark ready." if usable else
-                             "Confirm the exact CeX record before using its retail price.")})
-                    market_value = cex.get("retail") if usable else None
-                    if usable:
-                        identity = dict(fallback or {"type":intent.get("type"),"platform":intent.get("platform"),
-                                                   "family":intent.get("family"),"attributes":identity_attributes(q)})
-                        identity.update(confirmedProduct=cex.get("product"),label=cex.get("product"),
-                                        cexProductId=cex.get("productId"),source="cex-barcode" if cex.get('matchedByBarcode') else "cex-confirmed" if confirmed else "cex-strong")
-                        method="CeX UK retail benchmark independently verified without PriceCharting. RetroHQ applies condition and completeness adjustments; CeX cash and voucher are separate evidence."
-                    else:
-                        method="CeX returned a possible match, but RetroHQ requires confirmation before using its retail price."
-                else:
-                    evidence.append({"provider":"CeX UK","status":cex.get("status","Unavailable"),"detail":cex.get("detail",""),"variants":cex.get("variants",[])})
-                    market_value=None
-                    method="No confident UK benchmark. Check the CeX status and choose a matching catalogue variant if offered."
-            self.send_json({"query":q,"barcode":barcode,"marketValue":market_value,"confidence":"uk-retail-benchmark" if market_value is not None else ("reference-only" if pc.get("ok") else "unavailable"),"evidence":evidence,"method":method,"lockedIdentity":identity,"provisionalIdentity":cex_fallback_identity(q, lookup.get("intent") or infer_intent(q)),"pricechartingProductId":pc.get("id") if pc.get("ok") else None}); return
+            try:
+                self.market_search(parse_qs(u.query))
+            except (BrokenPipeError, ConnectionResetError):
+                return
+            except Exception as error:
+                self.log_error("Market search failed (%s)", type(error).__name__)
+                self.send_json({"ok":False,"status":"Price lookup could not finish. Try again.","marketValue":None},502)
+            return
         if u.path == "/api/accessory-costs":
             p=parse_qs(u.query); platform=(p.get("platform") or [""])[0].strip(); colour=(p.get("colour") or [""])[0].strip()
             controller=cex_accessory_retail(platform,colour) if platform else {"ok":False,"status":"No platform","detail":"No platform supplied."}

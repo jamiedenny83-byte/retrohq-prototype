@@ -635,8 +635,7 @@ window.runMarketInsight=async()=>{
  if(!q||!box)return;
  box.innerHTML='<p class="muted">Searching live providers…</p>';
  try{
-  const response=await fetch('/api/market-search?'+new URLSearchParams({q,cexGrade:'Unboxed'})),data=await response.json();
-  if(!response.ok)throw Error(data.status||'Market search failed.');
+  const data=await loadPriceLookup(new URLSearchParams({q,cexGrade:'Unboxed'}));
   if(input.value.trim()!==q||!box.isConnected)return;
   const evidence=data.evidence||[];
   const pending=data.needsConfirmation||data.needsRefinement;
@@ -712,12 +711,12 @@ window.buyCheck=(item=null,scan=null)=>{
 <div class="scan-actions"><button class="btn primary" onclick="photoIdentify()">Photo search</button><button class="btn secondary" onclick="scanBarcode()">Scan barcode</button>${item?'':`<button class="btn secondary" onclick="document.getElementById('bcNextPhoto').click()">Scan next</button><input id="bcNextPhoto" type="file" accept="image/*" capture="environment" hidden onchange="queueSourcingPhoto(this.files[0]);this.value=''">`}</div>
 <small class="muted">Photo search sends the image to OpenAI for identification. API charges apply.</small>
 
-<section class="card bc-result" aria-label="Price result"><div id="bcResultHead"></div><div id="autoSearchStatus" class="auto-status" role="status">Ready to check a price.</div><div id="autoEvidence"></div></section><div id="bcSourcingQueue" aria-live="polite"></div>
+<section class="card bc-result" aria-label="Price result"><div id="bcResultHead"></div><div id="autoSearchStatus" class="auto-status" role="status">Ready to check a price.</div><div id="autoEvidence"></div><div class="formgrid value-fields"><div class="field"><label>RetroHQ UK Market Value</label><input id="bcMarket" class="input" type="number" readonly placeholder="Waiting for live UK evidence"></div><div class="field"><label>Manual override (optional)</label><input id="bcOverride" name="retrohq_market_override" class="input" type="number" step="0.01" autocomplete="off" placeholder="Leave blank to use RetroHQ value" oninput="buyCheckSession.ebayComparable=null;buyCheckCalc()"><small id="overrideHint" class="muted" aria-live="polite">Only use this when you deliberately want to replace RetroHQ's calculated value.</small></div></div></section><div id="bcSourcingQueue" aria-live="polite"></div>
 <details id="bcSearchTools" class="card" ${!query?'open':''}><summary>Search by title or barcode</summary><div class="counter-search"><label for="bcDesc">${item?'Product to price':'What is the item?'}</label><div class="counter-search-row"><input id="bcDesc" class="input counter-input" value="${escapeText(query)}" autofocus oninput="buyLookupChanged()" placeholder="e.g. PS3 Slim 320GB Scarlet Red" onkeydown="if(event.key==='Enter'){event.preventDefault();autoMarketSearch();}"><button id="autoSearchBtn" class="btn primary" onclick="autoMarketSearch()">Search</button></div><small class="muted">Press Enter to search. You will only be asked to confirm when RetroHQ is genuinely unsure.</small></div>
 <div class="formgrid buy-basics"><div class="field"><label>Barcode / EAN (optional)</label><input id="bcBarcode" class="input" inputmode="numeric" value="${escapeText(item?.barcode||'')}" oninput="buyLookupChanged()" onkeydown="if(event.key==='Enter'){event.preventDefault();autoMarketSearch();}"></div></div></details>
 <details class="card"><summary>Condition and contents</summary><div class="buy-grade-card"><div><label>Condition</label><div class="quality-buttons"><button type="button" data-quality="Excellent" onclick="setBuyCondition('Excellent')">Excellent</button><button type="button" data-quality="Good" onclick="setBuyCondition('Good')">Good</button><button type="button" data-quality="Poor" onclick="setBuyCondition('Poor')">Poor</button></div></div><div><label>Included</label><div class="accessory-checks"><label id="bcBoxWrap"><input id="bcBox" type="checkbox" ${item?.accessories?.box?'checked':''} onchange="this.dataset.userSet='1';buyAccessoryChanged('box')"> <span id="bcBoxLabel">Box</span></label><label id="bcControllerWrap"><input id="bcController" type="checkbox" ${item?.accessories?.controller?'checked':''} onchange="buyAccessoryChanged('controller')"> Controller</label><label id="bcCablesWrap"><input id="bcCables" type="checkbox" ${item?.accessories?.cables?'checked':''} onchange="buyAccessoryChanged('cables')"> Cables</label></div></div><div id="bcGradeHint" class="grade-hint"></div></div></details>
 <div id="bcLinks"></div>${item?'':`<div class="formgrid"><label>Category<select class="select" id="bcCategory" onchange="acquisitionCategoryChanged('bc',this)">${acquisitionCategoryOptions()}</select></label><label>Purchase price (£)<input id="bcAsk" class="input" type="number" min="0" step="0.01" placeholder="Enter amount paid" oninput="buyCheckCalc()"></label></div>`}
-<div class="formgrid value-fields"><div class="field"><label>RetroHQ UK Market Value</label><input id="bcMarket" class="input" type="number" readonly placeholder="Waiting for live UK evidence"></div><div class="field"><label>Manual override (optional)</label><input id="bcOverride" name="retrohq_market_override" class="input" type="number" step="0.01" autocomplete="off" placeholder="Leave blank to use RetroHQ value" oninput="buyCheckSession.ebayComparable=null;buyCheckCalc()"><small id="overrideHint" class="muted" aria-live="polite">Only use this when you deliberately want to replace RetroHQ's calculated value.</small></div></div>
+
 <details class="card" ${item?'hidden':''}><summary>Storage and buying trip</summary><div class="formgrid"><label>Area<input class="input" id="bcArea"></label><label>Shelf<input class="input" id="bcShelf"></label><label>Buying trip / lot<input class="input" id="bcBatch" list="batchNames"><datalist id="batchNames">${[...new Set(state.items.map(i=>i.batchName).filter(Boolean))].map(n=>'<option value="'+escapeText(n)+'">').join('')}</datalist></label></div></details>${item?'':buyingCostsHtml("bc")+'<div id="bcDecision" class="decision-panel"></div>'}<div id="acquireError" role="status"></div><div class="modal-actions acquire-actions">${item?'<button class="btn secondary" onclick="closeModal()">Close</button>'+(readOnly?'':(nextImportedPriceCheck(item)?'<button class="btn secondary" onclick="saveExistingValue(true)">Save &amp; check next</button>':'')+'<button class="btn primary" onclick="saveExistingValue()">Save value</button>'):'<button class="btn secondary" onclick="closeModal()">Decline</button><button class="btn secondary" onclick="saveAcquisition(true)">Save & next</button><button class="btn primary" onclick="saveAcquisition(false)">Save item</button>'}</div>`);
  if(item?.accessories)$('#bcBox').dataset.userSet='1';
  if(item?.identity)updateCompletenessUI(item.identity);
@@ -845,6 +844,7 @@ window.runConfirmedSearch=async({cexId=null,cexGrade=null,prefetched=null}={})=>
  renderBuyLinks();buyCheckCalc();
  try{
   const params=new URLSearchParams({q,barcode,cexGrade:cexGrade??cexGradeForBuyCheck()});
+  if(session.item)params.set('stockPrice','1');
   if(session.pcId)params.set('id',session.pcId);
   if(cexId)params.set('cexId',cexId);
   if(session.manualCexChoice)params.set('cexChoose','1');
@@ -852,12 +852,21 @@ window.runConfirmedSearch=async({cexId=null,cexGrade=null,prefetched=null}={})=>
   if(!current())return;
   await renderMarketResult(data,current);
  }catch(error){
-  if(current()){status.textContent='Market lookup unavailable.';evidence.textContent=error.message;}
+  if(current()){
+   status.textContent='Price lookup interrupted';
+   evidence.innerHTML=`<p>${escapeText(error.message)}</p><button type="button" class="btn primary" id="retryPriceLookup">Retry price check</button>`;
+   $('#retryPriceLookup').onclick=()=>runConfirmedSearch({cexId,cexGrade});
+  }
  }finally{if(current())button.disabled=false;}
 };
 async function loadPriceLookup(params){
- const response=await fetch('/api/market-search?'+params),data=await response.json();
- if(!response.ok||data.ok===false)throw Error(data.status||'Market lookup failed.');
+ let response;
+ try{response=await fetch('/api/market-search?'+params,{cache:'no-store'});}
+ catch{throw Error('Could not reach RetroHQ. Check your connection and retry.');}
+ let data;
+ try{data=await response.json();}
+ catch{throw Error('RetroHQ returned an incomplete price response. Retry from here.');}
+ if(!response.ok||!data||typeof data!=='object'||data.ok===false)throw Error(data?.status||'Price lookup could not finish. Try again.');
  return data;
 }
 window.autoMarketSearch=()=>{
@@ -1075,8 +1084,7 @@ window.findCandidates=async()=>{
  if(lookup.pcId)p.set('id',lookup.pcId);
  if(lookup.cexId)p.set('cexId',lookup.cexId);
  try{
-  const response=await fetch('/api/market-search?'+p,{cache:'no-store'}),data=await response.json();
-  if(!response.ok)throw Error(data.status||'Lookup failed.');
+  const data=await loadPriceLookup(p);
   if(requestId!==lookup.requestId||!$('#candidateBox'))return;
   if(data.needsRefinement){
    status.textContent='Choose the correct console generation';
