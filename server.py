@@ -137,6 +137,19 @@ def ebay_browse_search(query, limit=12, *, gtin=None):
     except Exception as e:
         return {"ok":False,"status":"eBay Browse unavailable","detail":str(e)}
 
+
+def ebay_market_evidence(q):
+    ebay = ebay_browse_search(q, 12)
+    if ebay.get("ok"):
+        ebay_is_sandbox = ebay.get("environment", os.environ.get("EBAY_ENV","production").lower()) == "sandbox"
+        return [{"provider":"eBay UK","status":"Sandbox only" if ebay_is_sandbox else "Live","currency":"GBP","marketplace":"EBAY_GB",
+            "count":ebay.get("count"),"total":ebay.get("total"),"medianAsking":ebay.get("medianAsking"),
+            "lowAsking":ebay.get("lowAsking"),"highAsking":ebay.get("highAsking"),
+            "items":ebay.get("items",[])[:6],
+            "detail":("eBay Sandbox contains test listings, not real UK market prices." if ebay_is_sandbox else
+                      f"Live UK active listings: {ebay.get('count',0)} sampled. Median asking £{ebay.get('medianAsking'):.2f}." if ebay.get("medianAsking") is not None else "No live UK asking prices found in this search.")}]
+    return [{"provider":"eBay UK","status":ebay.get("status","Unavailable"),"detail":ebay.get("detail","")}]
+
 def browse_shipping(item):
     # Unknown/calculated postage remains unknown; never substitute zero.
     amounts=[]
@@ -353,6 +366,25 @@ def _cex_game_words(title):
     return words
 
 
+_RELEASE_YEAR = re.compile(r"\(((?:19|20)\d{2})\)")
+
+
+def _catalogue_game_title(title):
+    title = " ".join(_RELEASE_YEAR.sub(" ", title or "").split())
+    if re.fullmatch(r"(?:disney(?:['’]?s| s)?\s+)?aladdin", title, re.I):
+        return "Aladdin"
+    return title
+
+
+def _compatible_game_year(intent, title):
+    expected = intent.get("releaseYear")
+    if not expected:
+        named = _RELEASE_YEAR.search(intent.get("gameTitle") or "")
+        expected = named.group(1) if named else None
+    years = _RELEASE_YEAR.findall(title or "")
+    return not expected or not years or years == [expected]
+
+
 def _cex_match_words(title):
     """Remove only known catalogue packaging labels, keeping title/sequel words.
 
@@ -365,7 +397,7 @@ def _cex_match_words(title):
         text=re.sub(r",\s*"+suffix+r"\s*$","",text,flags=re.I)
     text=re.sub(r"\s*(?:,|\+)?\s*manual\s*$","",text,flags=re.I) if re.search(r"\)\s*\+\s*manual\s*$",text,re.I) else text
     text=re.sub(r"\((?:standard blue dvd case|2 disc cardboard case|european packaging|bbfc uk|pegi uk)\)"," ",text,flags=re.I)
-    words=_cex_game_words(text)
+    words=_cex_game_words(_catalogue_game_title(text))
     # Verified title alias; do not globally remove publisher names from games.
     if words==['konami','krazy','racers']:words=['krazy','racers']
     return words
@@ -396,6 +428,7 @@ def _cex_candidate_score(title, category, search_query, intent, identity, grade=
         if expected and (expected not in observed or observed!={expected}) and not smart_delivery:
             return None
         # Match the game TITLE, never merely the shared platform and number.
+        if not _compatible_game_year(intent, title): return None
         game_words=set(_cex_match_words(identity.get("confirmedProduct") or intent.get("gameTitle") or search_query))
         name_words=set(_cex_match_words(title))
         if not game_words or not game_words.issubset(name_words): return None
@@ -496,7 +529,7 @@ def cex_search(query, intent=None, limit=40, grade=None, identity=None, selected
     # Filter candidates by PS2/PS3/etc *after* searching, never by console keyword.
     search_query=aliases.get(platform,query) if intent.get("type")=="hardware" else (intent.get("gameTitle") or query)
     if intent.get("type")=="software":
-        search_query=" ".join(_cex_game_words(search_query))
+        search_query=" ".join(_cex_game_words(_catalogue_game_title(search_query)))
     attrs=identity.get("attributes") or {}
     for val in (attrs.get("revision"),attrs.get("storage"),attrs.get("colour")):
         if val and val.lower() not in search_query.lower(): search_query+=" "+val
@@ -763,6 +796,10 @@ def infer_intent(query):
                 intent.update(type="software",family=family,platform=label,label=label,
                               providerQueries=[],allowedConsoleTerms=allowed,
                               excludeConsoleTerms=excluded,gameTitle=game_title)
+                year = _RELEASE_YEAR.search(query)
+                if year:
+                    intent["releaseYear"] = year.group(1)
+                    _, intent["gameTitle"] = _platform_product_kind(_RELEASE_YEAR.sub(" ", query), phrases)
             else:
                 intent.update(type="hardware",family=family,platform=label,label=label,
                               providerQueries=provider,allowedConsoleTerms=allowed,
@@ -796,6 +833,7 @@ def candidate_allowed(c,intent):
     if intent.get("type")=="software":
         if is_hardware_candidate(c): return False
         platform = intent.get("platform") or ""
+        if platform == "SNES" and _cex_platforms(cn) != {"SNES"}: return False
         aliases = {
             "PlayStation 2": ("playstation 2", "ps2"),
             "PlayStation 3": ("playstation 3", "ps3"),
@@ -810,7 +848,8 @@ def candidate_allowed(c,intent):
             "Xbox Series X": ("xbox series",),
         }.get(platform, ())
         if aliases and not any(a in cn for a in aliases): return False
-        wanted=re.sub(r'\bcod\b','call of duty',intent.get('gameTitle') or '',flags=re.I)
+        if not _compatible_game_year(intent, pn): return False
+        wanted=re.sub(r'\bcod\b','call of duty',_catalogue_game_title(intent.get('gameTitle')),flags=re.I)
         shorthand=re.search(r'\bmw([123])\b',wanted,re.I)
         if shorthand:
             number=shorthand.group(1); roman={'1':'i','2':'ii','3':'iii'}[number]
@@ -818,7 +857,7 @@ def candidate_allowed(c,intent):
             if not {'modern','warfare'}.issubset(candidate_words) or not ({number,roman}&candidate_words): return False
             wanted=re.sub(r'\bmw[123]\b','modern warfare',wanted,flags=re.I)
         game_words = set(normalize_words(wanted))
-        if game_words and not game_words.issubset(set(normalize_words(pn))): return False
+        if game_words and not game_words.issubset(set(normalize_words(_catalogue_game_title(pn)))): return False
     if any(x in hay for x in intent.get("excludeConsoleTerms",[])): return False
     allowed=intent.get("allowedConsoleTerms",[])
     if allowed and not any(x in hay for x in allowed): return False
@@ -844,7 +883,7 @@ def candidate_score(query, c, intent):
 def pc_candidates_for(query,intent):
     searches=[]
     if intent.get("type")=="software" and intent.get("gameTitle"):
-        title=re.sub(r'\bcod\b','call of duty',intent['gameTitle'],flags=re.I)
+        title=re.sub(r'\bcod\b','call of duty',_catalogue_game_title(intent['gameTitle']),flags=re.I)
         if re.search(r'\bmw3\b',title,re.I):
             searches.extend(re.sub(r'\bmw3\b',edition,title,flags=re.I) for edition in ('modern warfare 3','modern warfare iii'))
         searches.append(title)
@@ -1087,23 +1126,13 @@ class H(SimpleHTTPRequestHandler):
             if lookup.get("resolvedQuery"):
                 q = lookup["resolvedQuery"]
             if lookup.get("mode") == "refinements":
-                self.send_json({"query":q,"barcode":barcode,"marketValue":None,"confidence":"needs-refinement","needsRefinement":True,"intent":lookup.get("intent"),"refinements":lookup.get("refinements",[]),"reason":lookup.get("reason")}); return
+                self.send_json({"query":q,"barcode":barcode,"marketValue":None,"confidence":"needs-refinement","needsRefinement":True,"evidence":ebay_market_evidence(q),"intent":lookup.get("intent"),"refinements":lookup.get("refinements",[]),"reason":lookup.get("reason")}); return
             if lookup.get("mode") == "candidates":
-                self.send_json({"query":q,"barcode":barcode,"marketValue":None,"confidence":"needs-confirmation","needsConfirmation":True,"intent":lookup.get("intent"),"provisionalIdentity":cex_fallback_identity(q, lookup.get("intent") or infer_intent(q)),"candidates":lookup.get("candidates",[]),"reason":lookup.get("reason")}); return
+                self.send_json({"query":q,"barcode":barcode,"marketValue":None,"confidence":"needs-confirmation","needsConfirmation":True,"evidence":ebay_market_evidence(q),"intent":lookup.get("intent"),"provisionalIdentity":cex_fallback_identity(q, lookup.get("intent") or infer_intent(q)),"candidates":lookup.get("candidates",[]),"reason":lookup.get("reason")}); return
             pc = lookup.get("result", {})
             market_intent=confirmed_market_intent(q,pc,lookup.get('intent') or infer_intent(q))
             identity = canonical_identity(q,pc,market_intent) if pc.get("ok") else None
-            ebay = ebay_browse_search(q, 12)
-            if ebay.get("ok"):
-                ebay_is_sandbox = ebay.get("environment", os.environ.get("EBAY_ENV","production").lower()) == "sandbox"
-                evidence = [{"provider":"eBay UK","status":"Sandbox only" if ebay_is_sandbox else "Live","currency":"GBP","marketplace":"EBAY_GB",
-                    "count":ebay.get("count"),"total":ebay.get("total"),"medianAsking":ebay.get("medianAsking"),
-                    "lowAsking":ebay.get("lowAsking"),"highAsking":ebay.get("highAsking"),
-                    "items":ebay.get("items",[])[:6],
-                    "detail":("eBay Sandbox contains test listings, not real UK market prices." if ebay_is_sandbox else
-                              f"Live UK active listings: {ebay.get('count',0)} sampled. Median asking £{ebay.get('medianAsking'):.2f}." if ebay.get("medianAsking") is not None else "No live UK asking prices found in this search.")}]
-            else:
-                evidence = [{"provider":"eBay UK","status":ebay.get("status","Unavailable"),"detail":ebay.get("detail","")}]
+            evidence = ebay_market_evidence(q)
 
             if pc.get("ok"):
                 pr = pc["prices"]
@@ -1118,7 +1147,8 @@ class H(SimpleHTTPRequestHandler):
                 # One exact title/platform match after catalogue identity confirmation
                 # needs no second user click. Editions and ambiguous records still do.
                 variants=cex.get("variants") or []
-                if (not cex_id and not p.get("cexChoose") and len(variants)==1 and identity.get("type")=="software"
+                if (not cex_id and not p.get("cexChoose") and not market_intent.get("releaseYear")
+                    and len(variants)==1 and identity.get("type")=="software"
                     and identity.get("confirmedProduct") and
                     _cex_game_words(variants[0].get("product"))==_cex_game_words(identity["confirmedProduct"])):
                     cex=cex_search(q,market_intent,grade=cex_grade,

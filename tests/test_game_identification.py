@@ -19,6 +19,57 @@ class FakeResponse:
 
 
 class GameIdentificationTests(unittest.TestCase):
+    def test_snes_aladdin_search_handles_catalogue_alias_and_optional_year(self):
+        from urllib.parse import parse_qs
+
+        query = "Disney's Aladdin (1995) snes"
+        intent = server.infer_intent(query)
+        loose = {"boxName":"Aladdin, Unboxed","categoryName":"Super NES Software","boxId":"013388130122C",
+                 "sellPrice":12,"cashPriceCalculated":3,"exchangePriceCalculated":4}
+        rows = [loose,
+                dict(loose,boxId="wrong-platform",categoryName="Mega Drive Software"),
+                dict(loose,boxId="wrong-year",boxName="Aladdin (2019), Unboxed"),
+                dict(loose,boxId="different-title",boxName="Aladdin 2, Unboxed")]
+
+        with patch.object(server,"urlopen",return_value=FakeResponse({"results":[{"hits":rows}]})) as request, \
+             patch.object(server.time,"sleep"):
+            result = server.cex_search(query,intent)
+        params = json.loads(request.call_args.args[0].data)["requests"][0]["params"]
+        self.assertEqual(parse_qs(params)["query"],["aladdin"])
+        self.assertEqual(result["status"],"CeX variant needed")
+        self.assertEqual([x["productId"] for x in result["variants"]],[loose["boxId"]])
+        with patch.object(server,"cex_detail",return_value=loose):
+            selected = server.cex_search(query,intent,selected_product_id=loose["boxId"])
+        self.assertEqual((selected["retail"],selected["cash"],selected["voucher"]),(12,3,4))
+        self.assertTrue(server.candidate_allowed({"product-name":"Aladdin","console-name":"PAL Super Nintendo"},intent))
+        self.assertFalse(server.candidate_allowed({"product-name":"Aladdin SNES","console-name":"NES"},intent))
+
+    def test_pending_identity_keeps_ebay_market_search_visible(self):
+        from urllib.parse import urlencode
+        from urllib.request import urlopen
+        from http.server import ThreadingHTTPServer
+        import threading
+
+        httpd = ThreadingHTTPServer(("127.0.0.1",0),server.H)
+        threading.Thread(target=httpd.serve_forever,daemon=True).start()
+        self.addCleanup(httpd.server_close)
+        self.addCleanup(httpd.shutdown)
+        url = f"http://127.0.0.1:{httpd.server_port}/api/market-search?" + urlencode({"q":"Aladdin SNES"})
+        live = {"ok":True,"environment":"production","count":1,"medianAsking":12,"items":[{"title":"Aladdin SNES"}]}
+        for mode, flag in (("candidates","needsConfirmation"),("refinements","needsRefinement")):
+            for provider, status in ((live,"Live"),({"status":"eBay Browse HTTP 403"},"eBay Browse HTTP 403")):
+                with self.subTest(mode=mode,status=status), \
+                     patch.object(server,"pricecharting_lookup",return_value={"mode":mode}), \
+                     patch.object(server,"ebay_browse_search",return_value=provider), \
+                     patch.object(server,"cex_search") as cex:
+                    with urlopen(url,timeout=5) as response:
+                        data = json.load(response)
+                    self.assertTrue(data[flag])
+                    self.assertIsNone(data["marketValue"])
+                    self.assertEqual(data["evidence"][0]["status"],status)
+                    if status=="Live": self.assertEqual(data["evidence"][0]["items"],live["items"])
+                    cex.assert_not_called()
+
     def test_game_titles_are_software_not_hardware(self):
         samples = (
             ("Silent Hill 2 PS2", "PlayStation 2", "silent hill 2"),
