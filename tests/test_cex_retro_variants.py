@@ -13,6 +13,55 @@ def hit(title,pid,category='GBA Software Gameboy Advance Software'):
     return {'boxName':title,'boxId':pid,'categoryName':category,'sellPrice':40,'cashPriceCalculated':15,'exchangePriceCalculated':20}
 
 class RetroVariantTests(unittest.TestCase):
+    def test_query_and_catalogue_share_platform_labels(self):
+        for query,label,category in [
+            ("Mario Kart 8 Deluxe Switch","Nintendo Switch","Nintendo Switch Software"),
+            ("Resident Evil 2 N64","Nintendo 64","Nintendo64 Software"),
+            ("Sonic Adventure Dreamcast","Dreamcast","Dreamcast Software"),
+            ("Mario Kart DS","Nintendo DS","Nintendo DS Software"),
+            ("Super Mario 3DS","Nintendo 3DS","Nintendo 3 DS Software"),
+        ]:
+            with self.subTest(query=query):
+                self.assertEqual(server.infer_intent(query)["platform"],label)
+                self.assertEqual(server._cex_platforms(category),{label})
+        intent=server.infer_intent("Mario Kart DS")
+        self.assertIsNotNone(server._cex_candidate_score("Mario Kart DS","Nintendo DS Software","Mario Kart",intent,{}))
+        self.assertIsNone(server._cex_candidate_score("Mario Kart 7","Nintendo 3DS Software","Mario Kart",intent,{}))
+
+    def test_buzzer_bundle_is_a_variant_not_a_different_game(self):
+        rows=[hit("Disney Think Fast (No Buzzers)","LOOSE","Playstation2 Software"),
+              hit("Disney Think Fast + Buzz Buzzers","BUNDLE","Playstation2 Software"),
+              hit("Disney Think Fast","WII","Wii Software"),
+              hit("Disney Think Fast 2 + Buzz Buzzers","SEQUEL","Playstation2 Software")]
+        with patch.object(server,"urlopen",return_value=Response({"results":[{"hits":rows}]})),patch.object(server.time,"sleep"):
+            variants=server.cex_search("Disney Think Fast PS2")["variants"]
+            self.assertEqual({v["grade"] for v in variants},{"With buzzers","Without buzzers"})
+            result=server.cex_search("PS2 PlayStation 2 Disney Think Fast Game + Buzzers Sealed")
+            self.assertEqual([v["productId"] for v in result["variants"]],["BUNDLE"])
+        with patch.object(server,"cex_detail",return_value=rows[0]):
+            self.assertFalse(server.cex_search("Disney Think Fast PS2 with buzzers",selected_product_id="LOOSE")["ok"])
+
+    def test_imported_title_cleanup_and_unknown_products(self):
+        self.assertEqual(server.infer_intent("STARWING Nintendo Super NES SNES SuperFX PAL CIB Boxed w/ Manual")["gameTitle"],"starwing")
+        self.assertEqual(server.infer_intent("Disney Pixar The Incredibles PS2 PAL w/ Manual THQ PEGI 7 2004 SLES-52812")["gameTitle"],"the incredibles")
+        with patch.object(server,"urlopen") as request:
+            result=server.cex_search("WowWee Homersapien")
+            self.assertFalse(result["ok"])
+            request.assert_not_called()
+
+    def test_no_results_and_rejected_candidates_are_separate(self):
+        q="Silent Hill 2 PS2"
+        rows=[hit("Silent Hill 2 Promo","RELATED","Playstation2 Software"),
+              hit("Silent Hill 3","SEQUEL","Playstation2 Software"),
+              hit("Silent Hill 2","WRONG","Playstation5 Software")]
+        with patch.object(server.time,"sleep"),patch.object(server,"urlopen",return_value=Response({"results":[{"hits":rows}]})):
+            result=server.cex_search(q)
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["status"],"No confident CeX match")
+        self.assertEqual(result["suggestions"],[{"product":"Silent Hill 2 Promo","query":"silent hill 2 promo PlayStation 2"}])
+        with patch.object(server.time,"sleep"),patch.object(server,"urlopen",return_value=Response({"results":[{"hits":[]}]})):
+            self.assertEqual(server.cex_search(q)["status"],"No CeX catalogue results")
+
     def test_super_nes_catalogue_matches_snes_without_accepting_nes(self):
         query='Starwing SNES Super Nintendo Game boxed'
         intent=server.infer_intent(query)

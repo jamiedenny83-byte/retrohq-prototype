@@ -311,40 +311,42 @@ def cex_identity_quality(title, identity):
         else: conflicts.append("colour")
     return matches,conflicts
 
-def _cex_platforms(text):
-    """Recognise human-readable and CeX catalogue-slug platform labels.
+_PLATFORM_ALIASES = {
+    "PlayStation 1":("ps1","ps 1","psone","playstation 1"),
+    **{f"PlayStation {n}":(f"ps{n}",f"ps {n}",f"playstation {n}") for n in range(2,6)},
+    "Original Xbox":("original xbox","xbox original"),
+    "Xbox 360":("xbox 360",), "Xbox One":("xbox one",),
+    "Xbox Series X":("xbox series x",), "Xbox Series S":("xbox series s",),
+    "Game Boy Advance":("gameboy advance","game boy advance","gba"),
+    "Game Boy Color":("gameboy color","game boy color","gameboy colour","game boy colour","gbc"),
+    "Game Boy":("game boy","gameboy"), "GameCube":("gamecube","game cube"),
+    "Nintendo 64":("nintendo 64","n64","n 64"), "SNES":("super nintendo","super nes","snes"),
+    "NES":("nes","nintendo entertainment system"), "Dreamcast":("dreamcast",),
+    "Mega Drive":("mega drive","megadrive","genesis"), "Saturn":("saturn",),
+    "Nintendo Switch":("nintendo switch","switch"), "Wii U":("wii u",), "Wii":("wii",),
+    "Nintendo 3DS":("nintendo 3ds","3ds","3 ds"), "Nintendo DS":("nintendo ds","ds"),
+}
 
-    Examples: 'PS2', 'Playstation 2', 'playstation2-software'.
-    Do not infer a console merely because a game title contains the number 2.
-    """
-    raw=re.sub(r"[^a-z0-9]+"," ",str(text or "").lower())
-    words=re.sub(r"(?<=[a-z])(?=\d)|(?<=\d)(?=[a-z])"," ",raw)
-    words=re.sub(r"\bplay\s+station\b","playstation",words)
-    words=re.sub(r"\bgame\s+boy\b","gameboy",words)
+
+def _platform_mentions(text):
+    words=" ".join(normalize_words(str(text or "")))
+    words=re.sub(r"\bplay station\b","playstation",words)
     found=set()
-    for num in ("2","3","4","5"):
-        if re.search(r"\b(?:ps|playstation)\s*"+num+r"\b",words):
-            found.add("PlayStation "+num)
-    for num in ("360",):
-        if re.search(r"\bxbox\s*"+num+r"\b",words):
-            found.add("Xbox "+num)
-    if re.search(r"\bxbox\s*one\b",words): found.add("Xbox One")
-    if re.search(r"\bxbox\s*series\s*s\b",words): found.add("Xbox Series S")
-    if re.search(r"\bxbox\s*series\s*x\b",words): found.add("Xbox Series X")
-    if re.search(r"\bgameboy\s*advance\b|\bgba\b",words): found.add("Game Boy Advance")
-    if re.search(r"\bgameboy\s*color\b|\bgameboy\s*colour\b|\bgbc\b",words): found.add("Game Boy Color")
-    if re.search(r'\bxbox\s+smart\s+delivery\b',words): found.update(('Xbox One','Xbox Series X'))
-    if re.search(r'\bxbox\b',words) and not any(x.startswith('Xbox') for x in found): found.add('Original Xbox')
-    if re.search(r'\b(?:ps\s*1|psone|playstation)\b',words) and not any(x.startswith('PlayStation') for x in found): found.add('PlayStation 1')
-    for pattern,platform in ((r'\bgame\s*cube\b','GameCube'),(r'\b(?:nintendo\s*64|n\s*64)\b','Nintendo 64'),
-        (r'\b(?:super\s*(?:nintendo|nes)|snes)\b','SNES'),(r'(?<!super )\bnes\b','NES'),(r'\b(?:dreamcast)\b','Dreamcast'),
-        (r'\b(?:mega\s*drive|genesis)\b','Mega Drive'),(r'\bsaturn\b','Saturn'),(r'\bswitch\b','Nintendo Switch')):
-        if re.search(pattern,words): found.add(platform)
-    if re.search(r'\bwii\s*u\b',words): found.add('Wii U')
-    elif re.search(r'\bwii\b',words): found.add('Wii')
-    if re.search(r'\b(?:nintendo\s*)?3\s*ds\b',words): found.add('Nintendo 3DS')
-    elif re.search(r'\b(?:nintendo\s*)?ds\b',words): found.add('Nintendo DS')
-    if re.search(r'\bgameboy\b',words) and not any(x.startswith('Game Boy') for x in found): found.add('Game Boy')
+    aliases=sorted(((alias,platform) for platform,names in _PLATFORM_ALIASES.items()
+                    for alias in names),key=lambda entry:len(entry[0]),reverse=True)
+    for alias,platform in aliases:
+        # CeX also uses compact category slugs, e.g. playstation2-software.
+        pattern=r"\b"+r" *".join(map(re.escape,alias.split()))+r"\b"
+        words,count=re.subn(pattern," ",words)
+        if count: found.add(platform)
+    return found,words
+
+
+def _cex_platforms(text):
+    found,remainder=_platform_mentions(text)
+    if re.search(r"\bxbox smart delivery\b",remainder): found.update(("Xbox One","Xbox Series X"))
+    if re.search(r"\bxbox\b",remainder) and not any(x.startswith("Xbox") for x in found): found.add("Original Xbox")
+    if re.search(r"\bplaystation\b",remainder) and not any(x.startswith("PlayStation") for x in found): found.add("PlayStation 1")
     return found
 
 
@@ -385,27 +387,41 @@ def _compatible_game_year(intent, title):
     return not expected or not years or years == [expected]
 
 
-def _cex_match_words(title):
+def _cex_match_words(title,platform=None):
     """Remove only known catalogue packaging labels, keeping title/sequel words.
 
     Full provider labels remain visible and must be explicitly selected. This
     helper is deliberately NOT used by the automatic exact-match shortcut.
     """
-    text=str(title or "")
+    text,_=_game_contents(title)
     suffix=r"(?:unboxed|boxed|mint|(?:w/|with|\+)\s*manual|(?:w/o|without|no)\s*manual)"
     while re.search(r",\s*"+suffix+r"\s*$",text,re.I):
         text=re.sub(r",\s*"+suffix+r"\s*$","",text,flags=re.I)
     text=re.sub(r"\s*(?:,|\+)?\s*manual\s*$","",text,flags=re.I) if re.search(r"\)\s*\+\s*manual\s*$",text,re.I) else text
     text=re.sub(r"\((?:standard blue dvd case|2 disc cardboard case|european packaging|bbfc uk|pegi uk)\)"," ",text,flags=re.I)
     words=_cex_game_words(_catalogue_game_title(text))
+    if words[:2]==["disney","pixar"]:words=_cex_game_words(" ".join(words[2:]))
+    for alias in sorted(_PLATFORM_ALIASES.get(platform,()),key=len,reverse=True):
+        words=re.sub(r"\b"+re.escape(alias)+r"\b"," "," ".join(words)).split()
     # Verified title alias; do not globally remove publisher names from games.
     if words==['konami','krazy','racers']:words=['krazy','racers']
     return words
 
 
+def _game_contents(title):
+    """Separate recognised bundle contents from the game's name."""
+    text=str(title or "")
+    pattern=r"(?:\s*\(\s*|\s+)(no|without|with|w/|\+)\s+(?:buzz\s+)?buzzers?\s*\)?$"
+    match=re.search(pattern,text,re.I)
+    if not match: return text,None
+    return text[:match.start()].strip(),("Without buzzers" if match[1].lower() in ("no","without") else "With buzzers")
+
+
 def cex_game_grade(title):
     """CeX's game condition/completeness label; never inferred from shop condition."""
     text=str(title or "")
+    _,contents=_game_contents(text)
+    if contents:return contents
     if re.search(r",\s*mint\s*$",text,re.I):return "Mint"
     if re.search(r",\s*unboxed\s*$",text,re.I):return "Unboxed"
     if re.search(r",\s*boxed\s*$",text,re.I):
@@ -422,15 +438,18 @@ def _cex_candidate_score(title, category, search_query, intent, identity, grade=
         # CeX frequently labels PS2 titles 'playstation2-software'. Such
         # catalogue categories prove the platform even if the title lacks PS2.
         expected=identity.get("platform") or intent.get("platform")
-        observed=_cex_platforms(title+" "+category)
+        observed=_cex_platforms(category) | _platform_mentions(title)[0]
         smart_delivery=(observed=={'Xbox One','Xbox Series X'} and 'smart delivery' in category.lower()
                         and expected in ('Xbox One','Xbox Series X','Xbox One / Series X'))
         if expected and (expected not in observed or observed!={expected}) and not smart_delivery:
             return None
         # Match the game TITLE, never merely the shared platform and number.
         if not _compatible_game_year(intent, title): return None
-        game_words=set(_cex_match_words(identity.get("confirmedProduct") or intent.get("gameTitle") or search_query))
-        name_words=set(_cex_match_words(title))
+        wanted_contents=intent.get("gameContents") or _game_contents(intent.get("gameTitle") or search_query)[1]
+        _,actual_contents=_game_contents(title)
+        if wanted_contents and wanted_contents!=actual_contents: return None
+        game_words=set(_cex_match_words(identity.get("confirmedProduct") or intent.get("gameTitle") or search_query,expected))
+        name_words=set(_cex_match_words(title,expected))
         if not game_words or not game_words.issubset(name_words): return None
         # Extra title words may mean a different game, not an edition.
         # Named catalogue editions still require the existing user confirmation.
@@ -442,6 +461,9 @@ def _cex_candidate_score(title, category, search_query, intent, identity, grade=
         if " ".join(normalize_words(title)).startswith(" ".join(normalize_words(intent.get("gameTitle") or ""))):
             score+=8
     if intent.get("type")=="hardware":
+        expected=identity.get("platform") or intent.get("platform")
+        observed=_cex_platforms(category) or _cex_platforms(title)
+        if expected and observed and expected not in observed:return None
         if any(x in hay for x in ("software"," games","accessor","case","controller","cable","charger","adapter","headset")): return None
         if not any(x in hay for x in ("console","consoles","system","handheld","gameboy","game boy")): return None
         score+=15
@@ -516,7 +538,10 @@ def cex_detail(product_id):
 def cex_search(query, intent=None, limit=40, grade=None, identity=None, selected_product_id=None):
     global _cex_last_call
     if not query: return {"ok":False,"status":"No query","detail":"No confirmed identity supplied to CeX."}
-    intent=intent or {}; identity=identity or {}; qlow=(query or "").lower()
+    intent=intent or infer_intent(query); identity=identity or {}; qlow=query.lower()
+    if intent.get("type") not in ("software","hardware") or not (identity.get("platform") or intent.get("platform")):
+        return {"ok":False,"status":"CeX needs a supported product and platform",
+                "detail":"Search with the exact game or console and its platform, or scan a barcode."}
     if not grade:
         for g in ("discounted","unboxed","boxed"):
             if re.search(r"\b"+g+r"\b",qlow): grade=g.title(); break
@@ -529,7 +554,8 @@ def cex_search(query, intent=None, limit=40, grade=None, identity=None, selected
     # Filter candidates by PS2/PS3/etc *after* searching, never by console keyword.
     search_query=aliases.get(platform,query) if intent.get("type")=="hardware" else (intent.get("gameTitle") or query)
     if intent.get("type")=="software":
-        search_query=" ".join(_cex_game_words(_catalogue_game_title(search_query)))
+        base,_=_game_contents(search_query)
+        search_query=" ".join(_cex_game_words(_catalogue_game_title(base)))
     attrs=identity.get("attributes") or {}
     for val in (attrs.get("revision"),attrs.get("storage"),attrs.get("colour")):
         if val and val.lower() not in search_query.lower(): search_query+=" "+val
@@ -565,7 +591,7 @@ def cex_search(query, intent=None, limit=40, grade=None, identity=None, selected
         if qualifier:
             queries.extend((search_query+" "+qualifier,qualifier+" "+search_query))
     queries=list(dict.fromkeys(queries))[:3]
-    ranked=[]; seen=set(); scanned=0; attempted=[]
+    ranked=[]; seen=set(); scanned=0; attempted=[]; review={}
     for sq in queries:
         params=urlencode({"query":sq,"hitsPerPage":limit})
         payload=json.dumps({"requests":[{"indexName":"prod_cex_uk","params":params}]}).encode("utf-8")
@@ -594,7 +620,16 @@ def cex_search(query, intent=None, limit=40, grade=None, identity=None, selected
             title=str(_first(h,"boxName","name","title","productName") or "")
             category=_cex_category_text(h)
             sc=_cex_candidate_score(title,category,sq,intent,identity,grade)
-            if sc is None: continue
+            if sc is None:
+                if intent.get("type")=="software" and _cex_platforms(category)=={platform}:
+                    wanted=set(_cex_match_words(identity.get("confirmedProduct") or intent.get("gameTitle"),platform))
+                    words=_cex_match_words(title,platform)
+                    shared=wanted.intersection(words)-{"the","and","of","game"}
+                    same_numbers={word for word in wanted if word.isdigit()}=={word for word in words if word.isdigit()}
+                    if same_numbers and words and (len(shared)>=2 or len(wanted)==1 and shared):
+                        candidate_query=" ".join([*words,platform])
+                        review.setdefault(candidate_query,{"product":title,"query":candidate_query})
+                continue
             pid=str(_first(h,"boxId","box_id","objectID","id") or "")
             key=pid or (title.lower(),category.lower())
             if key in seen: continue
@@ -609,10 +644,13 @@ def cex_search(query, intent=None, limit=40, grade=None, identity=None, selected
             pid=str(_first(cand,"boxId","box_id","objectID","id") or "")
             if pid==str(selected_product_id): return exact_result(cand,True)
         return {"ok":False,"status":"CeX exact match unavailable","detail":"The selected CeX record could not be refreshed. Choose a CeX match again."}
+    if not scanned:
+        return {"ok":False,"status":"No CeX catalogue results","detail":"CeX responded, but found no records for this search."}
     if not ranked or ranked[0][0]<12:
         return {"ok":False,"status":"No confident CeX match",
-                "detail":"CeX checked {} catalogue result(s) across {} search(es), but none passed the game title and platform checks. No UK price was inferred.".format(scanned,len(attempted)) if intent.get("type")=="software" else
-                         "CeX returned no candidate that passed RetroHQ's locked product identity checks."}
+                "detail":"CeX checked {} catalogue result(s) across {} search(es), but none passed the title, platform and contents checks. No UK price was inferred.".format(scanned,len(attempted)) if intent.get("type")=="software" else
+                         "CeX returned no candidate that passed RetroHQ's locked product identity checks.",
+                "suggestions":list(review.values())[:3]}
     if intent.get("type") in ("hardware","software"):
         # Games may have standard, Platinum, Director's Cut or regional variants.
         # Explicitly confirm a game edition before using CeX as a UK benchmark.
@@ -753,16 +791,20 @@ def _platform_product_kind(query, phrases):
     # contents. Keep the title, format marker and any named edition.
     descriptors = (r"pal(?: version)?|uk(?: pal)?|boxed|unboxed|cib|complete(?: in box)?|"
                    r"(?:with|without|w|w o) (?:manual|inserts(?: and)? manual|inserts)|"
-                   r"(?:disc|disk|cartridge|cart) only|(?:fully )?tested(?: and working)?|manual|game|vgc")
+                   r"(?:disc|disk|cartridge|cart) only|(?:fully )?tested(?: and working)?|manual|game|vgc|sealed|"
+                   r"superfx|thq|pegi (?:3|7|12|16|18)|(?:19|20)\d{2}|(?:sles|scus|slus|sces) \d{4,5}")
     q = re.sub(r"\b((?:" + platforms + r")(?: (?:game|disc|disk|cartridge|cart))?)(?: (?:" +
                descriptors + r"))+$", r"\1", q)
     if any(phrase.startswith(("ps","playstation")) for phrase in phrases):
         q = re.sub(r"\bsony (?=(?:"+platforms+r")\b)", "", q)
+    if "snes" in phrases:
+        q = re.sub(r"(?<!super )\bnintendo (?=(?:super nes|super nintendo|snes)\b)", "", q)
     remainder = q
     for phrase in platform_phrases:
         if re.search(r"\b" + re.escape(phrase) + r"\b", remainder):
             remainder = re.sub(r"\b" + re.escape(phrase) + r"\b", " ", remainder)
     terms = normalize_words(remainder)
+    if terms[:2]==["disney","pixar"] and len(terms)>2:terms=terms[2:]
     # Explicit references to games take precedence unless explicitly hardware.
     if any(t in ("console", "system", "handheld") for t in terms):
         return "hardware", ""
@@ -776,7 +818,9 @@ def _platform_product_kind(query, phrases):
 
 
 def infer_intent(query):
-    q=" ".join(normalize_words(query))
+    query_with_contents=re.sub(r"\+\s*(?=(?:buzz\s+)?buzzers?\b)"," with ",query,flags=re.I)
+    q=" ".join(normalize_words(query_with_contents))
+    q=re.sub(r"\bplay station\b","playstation",q)
     intent={"type":"unknown","family":None,"platform":None,"label":None,"ambiguous":False,"providerQueries":[],"allowedConsoleTerms":[],"excludeConsoleTerms":[]}
     if any(w in q.split() for w in ("console","handheld","system")): intent["type"]="hardware"
 
@@ -784,7 +828,7 @@ def infer_intent(query):
     # not weakened by a provider's broad text search.
     taxonomy=[
       (("original xbox","xbox original"),"Xbox","Original Xbox","hardware",["Xbox System","Original Xbox System"],["xbox"],["xbox 360","xbox one","xbox series"]),
-      (("xbox series s",),"Xbox","Xbox Series S","hardware",["Xbox Series S Console","Xbox Series S System"],["xbox series x"], ["xbox 360","xbox one"]),
+      (("xbox series s",),"Xbox","Xbox Series S","hardware",["Xbox Series S Console","Xbox Series S System"],["xbox series s"], ["xbox 360","xbox one"]),
       (("xbox series x",),"Xbox","Xbox Series X","hardware",["Xbox Series X Console","Xbox Series X System"],["xbox series x"], ["xbox 360","xbox one"]),
       (("xbox one",),"Xbox","Xbox One","hardware",["Xbox One Console","Xbox One System"],["xbox one"],["xbox 360","xbox series"]),
       (("xbox 360",),"Xbox","Xbox 360","hardware",["Xbox 360 Console","Xbox 360 System"],["xbox 360"],["xbox one","xbox series"]),
@@ -796,25 +840,35 @@ def infer_intent(query):
       (("gameboy color","game boy color","gbc"),"Nintendo","Game Boy Color","hardware",["Game Boy Color System","GameBoy Color System"],["gameboy color","game boy color"],["gameboy advance","game boy advance"]),
       (("super nintendo","super nes","snes"),"Nintendo","SNES","hardware",["Super Nintendo System","SNES System"],["super nintendo","super nes","snes"],[]),
     ]
-    # Prefer longest/specific phrases first.
-    for phrases,family,label,typ,provider,allowed,excluded in taxonomy:
-        if any(re.search(r"\b"+re.escape(ph)+r"\b",q) for ph in phrases):
-            kind, game_title = _platform_product_kind(q, phrases)
-            if kind == "software":
-                # Do not search PriceCharting for console systems when valuing a game.
-                # Keep the platform as a filter for game editions/regions.
-                intent.update(type="software",family=family,platform=label,label=label,
-                              providerQueries=[],allowedConsoleTerms=allowed,
-                              excludeConsoleTerms=excluded,gameTitle=game_title)
-                year = _RELEASE_YEAR.search(query)
-                if year:
-                    intent["releaseYear"] = year.group(1)
-                    _, intent["gameTitle"] = _platform_product_kind(_RELEASE_YEAR.sub(" ", query), phrases)
-            else:
-                intent.update(type="hardware",family=family,platform=label,label=label,
-                              providerQueries=provider,allowedConsoleTerms=allowed,
-                              excludeConsoleTerms=excluded)
-            return intent
+    platforms,_=_platform_mentions(q)
+    if len(platforms)>1:
+        intent.update(ambiguous=True,refinements=[{"label":platform,"query":platform} for platform in sorted(platforms)])
+        return intent
+    if platforms:
+        label=next(iter(platforms))
+        legacy=next((row for row in taxonomy if row[2]==label),None)
+        family=legacy[1] if legacy else label.split()[0]
+        provider=legacy[4] if legacy else [label+" System",label+" Console"]
+        allowed=legacy[5] if legacy else []
+        excluded=legacy[6] if legacy else []
+        phrases=_PLATFORM_ALIASES[label]
+        # Match compact slugs in queries as well as catalogue labels.
+        for phrase in phrases:
+            if " " in phrase:
+                q=re.sub(r"\b"+re.escape(phrase.replace(" ",""))+r"\b",phrase,q)
+        kind,game_title=_platform_product_kind(q,phrases)
+        intent.update(type=kind,family=family,platform=label,label=label,
+                      providerQueries=provider if kind=="hardware" else [],
+                      allowedConsoleTerms=allowed,excludeConsoleTerms=excluded)
+        if kind=="software":
+            base,contents=_game_contents(re.sub(r"\s+sealed$","",game_title))
+            intent.update(gameTitle=base,gameContents=contents)
+            year=_RELEASE_YEAR.search(query)
+            if year:
+                intent["releaseYear"]=year.group(1)
+                clean=re.sub(r"\b"+year.group(1)+r"\b"," ",q,count=1)
+                _,intent["gameTitle"]=_platform_product_kind(clean,phrases)
+        return intent
 
     if q in ("xbox","xbox console","xbox system"):
         intent.update(type="hardware",family="Xbox",label="Xbox",ambiguous=True)
@@ -843,7 +897,9 @@ def candidate_allowed(c,intent):
     if intent.get("type")=="software":
         if is_hardware_candidate(c): return False
         platform = intent.get("platform") or ""
-        if platform == "SNES" and _cex_platforms(cn) != {"SNES"}: return False
+        observed=_cex_platforms(cn)
+        if platform and observed and platform not in observed: return False
+        if platform=="SNES" and observed!={"SNES"}: return False
         aliases = {
             "PlayStation 2": ("playstation 2", "ps2"),
             "PlayStation 3": ("playstation 3", "ps3"),
@@ -1147,7 +1203,7 @@ class H(SimpleHTTPRequestHandler):
                 market_value = cex.get("retail")
                 method = "CeX UK retail is the identity-validated benchmark for the selected grade. RetroHQ then adjusts that benchmark for the actual item's known completeness. Cash and voucher trade-in are evidence only and are never used as market value."
             else:
-                evidence.append({"provider":"CeX UK","status":cex.get("status","Unavailable"),"detail":cex.get("detail",""),"variants":cex.get("variants",[])})
+                evidence.append({"provider":"CeX UK","status":cex.get("status","Unavailable"),"detail":cex.get("detail",""),"variants":cex.get("variants",[]),"suggestions":cex.get("suggestions",[])})
                 market_value = None
                 method = "Live PriceCharting reference loaded. CeX pricing is awaiting a grade choice where multiple catalogue records exist; uncertain evidence is excluded from UK Market Value."
         else:
@@ -1199,7 +1255,7 @@ class H(SimpleHTTPRequestHandler):
                 else:
                     method="CeX returned a possible match, but RetroHQ requires confirmation before using its retail price."
             else:
-                evidence.append({"provider":"CeX UK","status":cex.get("status","Unavailable"),"detail":cex.get("detail",""),"variants":cex.get("variants",[])})
+                evidence.append({"provider":"CeX UK","status":cex.get("status","Unavailable"),"detail":cex.get("detail",""),"variants":cex.get("variants",[]),"suggestions":cex.get("suggestions",[])})
                 market_value=None
                 method="No confident UK benchmark. Check the CeX status and choose a matching catalogue variant if offered."
         self.send_json({"query":q,"barcode":barcode,"marketValue":market_value,"confidence":"uk-retail-benchmark" if market_value is not None else ("reference-only" if pc.get("ok") else "unavailable"),"evidence":evidence,"method":method,"lockedIdentity":identity,"provisionalIdentity":cex_fallback_identity(q, lookup.get("intent") or infer_intent(q)),"pricechartingProductId":pc.get("id") if pc.get("ok") else None}); return
